@@ -1,0 +1,57 @@
+import { Alert, Layout, Menu, Typography } from "antd";
+import { BrowserRouter, Route, Routes, Link, useLocation } from "react-router-dom";
+import HomePage from "./pages/HomePage";
+import GraphPage from "./pages/GraphPage";
+import CandidatesPage from "./pages/CandidatesPage";
+
+const { Header, Content, Footer } = Layout;
+
+function AppMenu() {
+  const location = useLocation();
+  const items = [
+    { key: "/", label: <Link to="/">首页</Link> },
+    { key: "/graph", label: <Link to="/graph">产业图谱</Link> },
+    { key: "/candidates", label: <Link to="/candidates">候选池</Link> },
+  ];
+  return (
+    <Menu
+      theme="dark"
+      mode="horizontal"
+      selectedKeys={[location.pathname]}
+      items={items}
+      style={{ flex: 1, minWidth: 0 }}
+    />
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Layout style={{ minHeight: "100vh" }}>
+        <Header style={{ display: "flex", alignItems: "center" }}>
+          <Typography.Title level={4} style={{ color: "#fff", margin: 0, marginRight: 24 }}>
+            AiStock
+          </Typography.Title>
+          <AppMenu />
+        </Header>
+        <Content style={{ padding: 24 }}>
+          <Alert
+            type="info"
+            showIcon
+            message="知识驱动的定性投研辅助系统"
+            description="量化提示分仅作辅助排序，所有入池须经研究员人工确认。不构成投资建议。"
+            style={{ marginBottom: 16 }}
+          />
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/graph" element={<GraphPage />} />
+            <Route path="/candidates" element={<CandidatesPage />} />
+          </Routes>
+        </Content>
+        <Footer style={{ textAlign: "center" }}>
+          AiStock © {new Date().getFullYear()} — 投研辅助工具，不构成投资建议
+        </Footer>
+      </Layout>
+    </BrowserRouter>
+  );
+}

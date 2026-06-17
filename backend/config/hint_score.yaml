@@ -1,0 +1,15 @@
+version: "1.0.0"
+weights:
+  supply_rigidity: 0.30
+  tech_barrier: 0.25
+  supply_demand_gap: 0.25
+  concentration: 0.20
+thresholds:
+  hint_high: 70
+  hint_medium: 50
+  hint_low: 30
+rules:
+  expansion_cycle_months:
+    tiers: [[24, 100], [18, 80], [12, 50], [0, 20]]
+  cr4_concentration:
+    tiers: [[0.8, 100], [0.6, 80], [0.4, 50], [0, 20]]

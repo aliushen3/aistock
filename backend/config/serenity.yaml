@@ -1,0 +1,12 @@
+max_market_cap_billion: 200
+max_analyst_coverage: 5
+max_turnover_percentile: 0.3
+max_cost_ratio: 0.05
+exclude_top_n_by_cap: 3
+min_hops: 3
+max_hops: 4
+weights:
+  niche_fit: 0.30
+  supply_rigidity: 0.25
+  low_attention: 0.25
+  path_quality: 0.20

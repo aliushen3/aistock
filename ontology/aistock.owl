@@ -1,0 +1,42 @@
+# AiStock 产业链本体
+# 版本: 1.0.0
+# 编辑工具: Protégé
+# 说明: 占位文件，完整 OWL 请用 Protégé 建模后替换
+
+@prefix : <http://aistock.local/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:AiStockOntology a owl:Ontology ;
+    rdfs:label "AiStock Industry Chain Ontology"@zh .
+
+:Product a owl:Class ;
+    rdfs:label "产品节点"@zh .
+
+:Company a owl:Class ;
+    rdfs:label "上市公司"@zh .
+
+:Sector a owl:Class ;
+    rdfs:label "行业赛道"@zh .
+
+:Event a owl:Class ;
+    rdfs:label "产业事件"@zh .
+
+:BottleneckHint a owl:Class ;
+    rdfs:subClassOf :Product ;
+    rdfs:label "瓶颈提示（需人工确认）"@zh .
+
+:SerenityNiche a owl:Class ;
+    rdfs:subClassOf :Product ;
+    rdfs:label "Serenity小众环节"@zh .
+
+:UPSTREAM_OF a owl:ObjectProperty ;
+    rdfs:label "上游关系"@zh .
+
+:PRODUCES a owl:ObjectProperty ;
+    rdfs:domain :Company ;
+    rdfs:range :Product .
+
+:BELONGS_TO a owl:ObjectProperty ;
+    rdfs:domain :Product ;
+    rdfs:range :Sector .
