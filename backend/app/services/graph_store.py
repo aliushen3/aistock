@@ -1,0 +1,146 @@
+"""产业链知识图谱存储抽象。
+
+一期 MVP 使用内存实现（从 JSON 种子文件加载），便于无依赖跑通流程；
+二期可替换为 Neo4j 实现，对外接口保持不变（见 docs/05-serenity-algorithm.md）。
+
+边语义：UPSTREAM_OF 表示 source 是 target 的上游，即
+    source -[:UPSTREAM_OF]-> target
+因此「求某产品的上游」= 收集所有 target==该产品 的边的 source。
+"""
+
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+from pathlib import Path
+
+SEED_PATH = Path(__file__).resolve().parents[1] / "data" / "seed_ai_compute.json"
+
+
+class InMemoryGraphStore:
+    def __init__(self, seed: dict):
+        self.meta: dict = seed.get("meta", {})
+        self.sectors: dict[str, dict] = {s["id"]: s for s in seed.get("sectors", [])}
+        self.products: dict[str, dict] = {p["id"]: p for p in seed.get("products", [])}
+        self.companies: dict[str, dict] = {c["code"]: c for c in seed.get("companies", [])}
+        self.evidence: dict[str, dict] = {e["id"]: e for e in seed.get("evidence", [])}
+        self.relations: list[dict] = seed.get("relations", [])
+
+        # 邻接索引
+        self._upstream_of: dict[str, list[str]] = {}   # product -> 其上游产品列表
+        self._downstream_of: dict[str, list[str]] = {}  # product -> 其下游产品列表
+        for rel in self.relations:
+            if rel.get("type") != "UPSTREAM_OF":
+                continue
+            up, down = rel["source"], rel["target"]
+            self._upstream_of.setdefault(down, []).append(up)
+            self._downstream_of.setdefault(up, []).append(down)
+
+        # company-by-product 索引
+        self._producers: dict[str, list[str]] = {}
+        for code, c in self.companies.items():
+            for pid in c.get("produces", []):
+                self._producers.setdefault(pid, []).append(code)
+
+    # ---- 基础查询 ----
+    def get_sector(self, sector_id: str) -> dict | None:
+        return self.sectors.get(sector_id)
+
+    def list_sectors(self) -> list[dict]:
+        return list(self.sectors.values())
+
+    def get_product(self, product_id: str) -> dict | None:
+        return self.products.get(product_id)
+
+    def list_products(self, sector_id: str | None = None) -> list[dict]:
+        if sector_id is None:
+            return list(self.products.values())
+        return [p for p in self.products.values() if p.get("sector_id") == sector_id]
+
+    def get_company(self, code: str) -> dict | None:
+        return self.companies.get(code)
+
+    def companies_producing(self, product_id: str) -> list[dict]:
+        return [self.companies[c] for c in self._producers.get(product_id, [])]
+
+    def upstream_of(self, product_id: str) -> list[str]:
+        return self._upstream_of.get(product_id, [])
+
+    def get_evidence(self, ev_id: str) -> dict | None:
+        return self.evidence.get(ev_id)
+
+    def resolve_evidence(self, ev_ids: list[str]) -> list[dict]:
+        return [self.evidence[e] for e in ev_ids if e in self.evidence]
+
+    # ---- 子图（供 G6 可视化）----
+    def sector_subgraph(self, sector_id: str) -> dict:
+        nodes, edges = [], []
+        prods = self.list_products(sector_id)
+        prod_ids = {p["id"] for p in prods}
+        for p in prods:
+            nodes.append(
+                {
+                    "id": p["id"],
+                    "label": p["name"],
+                    "type": "product",
+                    "layer": p["layer"],
+                    "bottleneck_status": p.get("bottleneck_status", "none"),
+                    "serenity_niche": p.get("serenity_niche", False),
+                }
+            )
+        for rel in self.relations:
+            if rel.get("type") != "UPSTREAM_OF":
+                continue
+            if rel["source"] in prod_ids and rel["target"] in prod_ids:
+                edges.append(
+                    {"source": rel["source"], "target": rel["target"], "type": "UPSTREAM_OF"}
+                )
+        # 公司节点（关联到其生产的产品）
+        for code, c in self.companies.items():
+            linked = [pid for pid in c.get("produces", []) if pid in prod_ids]
+            if not linked:
+                continue
+            nodes.append(
+                {
+                    "id": code,
+                    "label": c["name"],
+                    "type": "company",
+                    "market_cap_billion": c.get("market_cap_billion"),
+                }
+            )
+            for pid in linked:
+                edges.append({"source": code, "target": pid, "type": "PRODUCES"})
+        return {"sector_id": sector_id, "nodes": nodes, "edges": edges}
+
+    # ---- 反向溯源（Serenity 用）----
+    def reverse_paths(
+        self, terminal_id: str, min_hops: int, max_hops: int
+    ) -> list[list[str]]:
+        """从终端产品沿 UPSTREAM_OF 反向遍历，返回深度在 [min_hops, max_hops] 的路径。
+
+        每条路径是产品 id 列表：[terminal, ..., leaf_upstream]（含中间节点）。
+        """
+        results: list[list[str]] = []
+
+        def dfs(node: str, path: list[str]):
+            depth = len(path) - 1  # 已走的跳数
+            if depth >= min_hops:
+                results.append(list(path))
+            if depth >= max_hops:
+                return
+            for up in self.upstream_of(node):
+                if up in path:  # 防环
+                    continue
+                path.append(up)
+                dfs(up, path)
+                path.pop()
+
+        dfs(terminal_id, [terminal_id])
+        return results
+
+
+@lru_cache(maxsize=1)
+def get_store() -> InMemoryGraphStore:
+    with open(SEED_PATH, encoding="utf-8") as f:
+        seed = json.load(f)
+    return InMemoryGraphStore(seed)

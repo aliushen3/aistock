@@ -1,0 +1,125 @@
+{
+  "meta": {
+    "sector": "AI算力",
+    "version": "0.1.0",
+    "disclaimer": "本文件为一期 MVP 演示用【示意性种子数据】，公司代码/名称均为虚构示例，所有数值仅用于跑通流程，不构成任何投资建议或真实产业数据。",
+    "edge_semantics": "relations 中 UPSTREAM_OF 表示 source 是 target 的上游（source -[:UPSTREAM_OF]-> target）"
+  },
+  "sectors": [
+    {
+      "id": "sector_ai_compute",
+      "name": "AI算力",
+      "status": "beta_confirmed",
+      "demand_growth_hint": 35.0,
+      "human_confirmed": true,
+      "terminal_products": ["prod_ai_server"]
+    }
+  ],
+  "products": [
+    {
+      "id": "prod_ai_server", "name": "AI服务器", "layer": "terminal", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 6, "cr4_concentration": 0.5, "tech_barrier_score": 60, "supply_demand_score": 60,
+      "cost_ratio": 1.0, "substitution_difficulty": "low", "overseas_dependence": "low", "certification_months": 6,
+      "bottleneck_status": "none", "serenity_niche": false, "provenance_ids": ["ev-001"]
+    },
+    {
+      "id": "prod_gpu", "name": "GPU加速卡", "layer": "terminal", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 12, "cr4_concentration": 0.85, "tech_barrier_score": 90, "supply_demand_score": 80,
+      "cost_ratio": 0.45, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 12,
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-002"]
+    },
+    {
+      "id": "prod_optical_module", "name": "光模块", "layer": "mid", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 12, "cr4_concentration": 0.65, "tech_barrier_score": 70, "supply_demand_score": 75,
+      "cost_ratio": 0.08, "substitution_difficulty": "medium", "overseas_dependence": "medium", "certification_months": 12,
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-003"]
+    },
+    {
+      "id": "prod_hsb_pcb", "name": "高速PCB", "layer": "mid", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 10, "cr4_concentration": 0.55, "tech_barrier_score": 65, "supply_demand_score": 65,
+      "cost_ratio": 0.06, "substitution_difficulty": "medium", "overseas_dependence": "low", "certification_months": 9,
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-004"]
+    },
+    {
+      "id": "prod_cowos", "name": "CoWoS先进封装", "layer": "mid", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 24, "cr4_concentration": 0.9, "tech_barrier_score": 92, "supply_demand_score": 90,
+      "cost_ratio": 0.12, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 30,
+      "bottleneck_status": "bottleneck_confirmed", "serenity_niche": false, "provenance_ids": ["ev-005", "ev-006"]
+    },
+    {
+      "id": "prod_eml_chip", "name": "EML光芯片", "layer": "material", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 24, "cr4_concentration": 0.8, "tech_barrier_score": 88, "supply_demand_score": 85,
+      "cost_ratio": 0.15, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 24,
+      "bottleneck_status": "bottleneck_confirmed", "serenity_niche": false, "provenance_ids": ["ev-007"]
+    },
+    {
+      "id": "prod_ccl", "name": "高频覆铜板(CCL)", "layer": "material", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 18, "cr4_concentration": 0.6, "tech_barrier_score": 70, "supply_demand_score": 70,
+      "cost_ratio": 0.2, "substitution_difficulty": "medium", "overseas_dependence": "medium", "certification_months": 12,
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-008"]
+    },
+    {
+      "id": "prod_inp_substrate", "name": "磷化铟衬底", "layer": "material", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 24, "cr4_concentration": 0.75, "tech_barrier_score": 85, "supply_demand_score": 78,
+      "cost_ratio": 0.04, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 24,
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-009"]
+    },
+    {
+      "id": "prod_low_dk_glass", "name": "低介电电子布", "layer": "consumable", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 20, "cr4_concentration": 0.7, "tech_barrier_score": 80, "supply_demand_score": 80,
+      "cost_ratio": 0.03, "substitution_difficulty": "high", "overseas_dependence": "medium", "certification_months": 18,
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-010"]
+    },
+    {
+      "id": "prod_hf_resin", "name": "高频高速树脂", "layer": "material", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 18, "cr4_concentration": 0.65, "tech_barrier_score": 78, "supply_demand_score": 75,
+      "cost_ratio": 0.04, "substitution_difficulty": "high", "overseas_dependence": "medium", "certification_months": 15,
+      "bottleneck_status": "none", "serenity_niche": true, "provenance_ids": ["ev-011"]
+    },
+    {
+      "id": "prod_abf_film", "name": "ABF载板膜", "layer": "material", "sector_id": "sector_ai_compute",
+      "expansion_cycle_months": 24, "cr4_concentration": 0.88, "tech_barrier_score": 86, "supply_demand_score": 82,
+      "cost_ratio": 0.05, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 24,
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-012"]
+    }
+  ],
+  "companies": [
+    { "code": "AI0001", "name": "示例-GPU厂", "produces": ["prod_gpu"], "market_cap_billion": 2000, "analyst_coverage": 35, "turnover_percentile": 0.9, "gross_margin": 0.55, "market_rank": 1, "pe_percentile": 0.9 },
+    { "code": "AI0002", "name": "示例-光模块龙头", "produces": ["prod_optical_module"], "market_cap_billion": 1500, "analyst_coverage": 42, "turnover_percentile": 0.88, "gross_margin": 0.34, "market_rank": 1, "pe_percentile": 0.85 },
+    { "code": "AI0003", "name": "示例-光模块B", "produces": ["prod_optical_module"], "market_cap_billion": 600, "analyst_coverage": 26, "turnover_percentile": 0.7, "gross_margin": 0.31, "market_rank": 2, "pe_percentile": 0.7 },
+    { "code": "AI0004", "name": "示例-高速PCB龙头", "produces": ["prod_hsb_pcb"], "market_cap_billion": 900, "analyst_coverage": 30, "turnover_percentile": 0.72, "gross_margin": 0.3, "market_rank": 1, "pe_percentile": 0.75 },
+    { "code": "AI0005", "name": "示例-先进封装厂", "produces": ["prod_cowos"], "market_cap_billion": 700, "analyst_coverage": 20, "turnover_percentile": 0.6, "gross_margin": 0.28, "market_rank": 2, "pe_percentile": 0.65 },
+    { "code": "AI0006", "name": "示例-光芯片厂", "produces": ["prod_eml_chip"], "market_cap_billion": 150, "analyst_coverage": 5, "turnover_percentile": 0.42, "gross_margin": 0.4, "market_rank": 3, "pe_percentile": 0.6 },
+    { "code": "AI0007", "name": "示例-高频覆铜板厂", "produces": ["prod_ccl"], "market_cap_billion": 220, "analyst_coverage": 8, "turnover_percentile": 0.45, "gross_margin": 0.29, "market_rank": 3, "pe_percentile": 0.55 },
+    { "code": "AI0008", "name": "示例-磷化铟衬底厂", "produces": ["prod_inp_substrate"], "market_cap_billion": 95, "analyst_coverage": 3, "turnover_percentile": 0.25, "gross_margin": 0.36, "market_rank": 6, "pe_percentile": 0.45 },
+    { "code": "AI0009", "name": "示例-电子布厂", "produces": ["prod_low_dk_glass"], "market_cap_billion": 80, "analyst_coverage": 2, "turnover_percentile": 0.2, "gross_margin": 0.28, "market_rank": 8, "pe_percentile": 0.4 },
+    { "code": "AI0010", "name": "示例-高频树脂厂", "produces": ["prod_hf_resin"], "market_cap_billion": 130, "analyst_coverage": 4, "turnover_percentile": 0.28, "gross_margin": 0.3, "market_rank": 5, "pe_percentile": 0.5 },
+    { "code": "AI0011", "name": "示例-ABF载板厂", "produces": ["prod_abf_film"], "market_cap_billion": 180, "analyst_coverage": 5, "turnover_percentile": 0.3, "gross_margin": 0.25, "market_rank": 4, "pe_percentile": 0.55 }
+  ],
+  "relations": [
+    { "source": "prod_inp_substrate", "target": "prod_eml_chip", "type": "UPSTREAM_OF" },
+    { "source": "prod_eml_chip", "target": "prod_optical_module", "type": "UPSTREAM_OF" },
+    { "source": "prod_low_dk_glass", "target": "prod_ccl", "type": "UPSTREAM_OF" },
+    { "source": "prod_hf_resin", "target": "prod_ccl", "type": "UPSTREAM_OF" },
+    { "source": "prod_ccl", "target": "prod_hsb_pcb", "type": "UPSTREAM_OF" },
+    { "source": "prod_abf_film", "target": "prod_cowos", "type": "UPSTREAM_OF" },
+    { "source": "prod_optical_module", "target": "prod_ai_server", "type": "UPSTREAM_OF" },
+    { "source": "prod_hsb_pcb", "target": "prod_ai_server", "type": "UPSTREAM_OF" },
+    { "source": "prod_cowos", "target": "prod_gpu", "type": "UPSTREAM_OF" },
+    { "source": "prod_gpu", "target": "prod_ai_server", "type": "UPSTREAM_OF" }
+  ],
+  "evidence": [
+    { "id": "ev-001", "source_type": "research_report", "source_ref": "示例-AI服务器产业链白皮书 p.3", "excerpt": "AI服务器需求受大模型训练与推理双轮驱动，2024-2026复合增速预期高。" },
+    { "id": "ev-002", "source_type": "research_report", "source_ref": "示例-加速计算深度报告 p.10", "excerpt": "高端GPU受海外供给与产能限制，国产替代仍处早期。" },
+    { "id": "ev-003", "source_type": "research_report", "source_ref": "示例-光模块产业链报告 p.8", "excerpt": "800G/1.6T光模块放量，头部厂商订单饱满。" },
+    { "id": "ev-004", "source_type": "announcement", "source_ref": "示例-高速PCB公司2025扩产公告", "excerpt": "公司公告投建高多层高速板产线，建设周期约10个月。" },
+    { "id": "ev-005", "source_type": "research_report", "source_ref": "示例-先进封装专题 p.12", "excerpt": "CoWoS产能由海外晶圆代工龙头主导，扩产周期约24个月。" },
+    { "id": "ev-006", "source_type": "expert", "source_ref": "示例-产业专家访谈纪要 2026-05", "excerpt": "先进封装设备交付周期长，短期供需缺口难以缓解。" },
+    { "id": "ev-007", "source_type": "research_report", "source_ref": "示例-光芯片国产化报告 p.6", "excerpt": "EML光芯片以海外IDM为主，认证周期长达2年以上。" },
+    { "id": "ev-008", "source_type": "research_report", "source_ref": "示例-覆铜板行业报告 p.15", "excerpt": "高频高速覆铜板向头部集中，扩产周期约18个月。" },
+    { "id": "ev-009", "source_type": "research_report", "source_ref": "示例-化合物半导体衬底报告 p.9", "excerpt": "磷化铟衬底全球供给集中，国产产能爬坡缓慢，认证壁垒高。" },
+    { "id": "ev-010", "source_type": "expert", "source_ref": "示例-电子布专家纪要 2026-04", "excerpt": "低介电电子布在覆铜板成本占比低但不可替代，配方与窑炉壁垒高。" },
+    { "id": "ev-011", "source_type": "research_report", "source_ref": "示例-特种树脂材料报告 p.4", "excerpt": "高频高速树脂国产供给稀缺，下游认证导入周期长。" },
+    { "id": "ev-012", "source_type": "research_report", "source_ref": "示例-载板材料报告 p.7", "excerpt": "ABF载板膜由海外厂商垄断，扩产与认证周期长。" }
+  ]
+}
