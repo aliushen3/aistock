@@ -8,6 +8,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| **[DESIGN.md](docs/DESIGN.md)** | **总体方案设计文档（主文档，优先阅读）** |
 | [00-system-positioning](docs/00-system-positioning.md) | 系统定位、定性/量化边界 |
 | [01-dual-logic-fusion](docs/01-dual-logic-fusion.md) | 双投研逻辑融合标准 |
 | [02-knowledge-engineering](docs/02-knowledge-engineering.md) | 知识工程蓝图 |
@@ -19,6 +20,7 @@
 | [08-mvp-scope](docs/08-mvp-scope.md) | 一期 MVP 范围 |
 | [09-evaluation](docs/09-evaluation.md) | 评估与验证 |
 | [10-tech-stack](docs/10-tech-stack.md) | 技术栈选型 |
+| [11-palantir-ontology](docs/11-palantir-ontology.md) | Palantir Ontology 语义层 |
 
 ## 技术栈
 

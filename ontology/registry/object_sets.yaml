@@ -1,0 +1,25 @@
+version: "1.0.0"
+
+object_sets:
+  BetaConfirmedSectors:
+    object_type: Sector
+    filter:
+      status: beta_confirmed
+
+  BottleneckProducts:
+    object_type: Product
+    filter:
+      bottleneck_status:
+        in: [bottleneck_hint, bottleneck_confirmed]
+
+  PendingCandidates:
+    object_type: CandidatePoolEntry
+    filter:
+      status: pending
+
+  P0FusionCandidates:
+    object_type: CandidatePoolEntry
+    filter:
+      mode: fusion
+      priority: P0
+      status: pending

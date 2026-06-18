@@ -3,6 +3,8 @@ import { BrowserRouter, Route, Routes, Link, useLocation } from "react-router-do
 import HomePage from "./pages/HomePage";
 import GraphPage from "./pages/GraphPage";
 import CandidatesPage from "./pages/CandidatesPage";
+import ProductPage from "./pages/ProductPage";
+import ReportPage from "./pages/ReportPage";
 
 const { Header, Content, Footer } = Layout;
 
@@ -12,6 +14,7 @@ function AppMenu() {
     { key: "/", label: <Link to="/">首页</Link> },
     { key: "/graph", label: <Link to="/graph">产业图谱</Link> },
     { key: "/candidates", label: <Link to="/candidates">候选池</Link> },
+    { key: "/report", label: <Link to="/report">投研报告</Link> },
   ];
   return (
     <Menu
@@ -46,6 +49,8 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/graph" element={<GraphPage />} />
             <Route path="/candidates" element={<CandidatesPage />} />
+            <Route path="/products/:productId" element={<ProductPage />} />
+            <Route path="/report" element={<ReportPage />} />
           </Routes>
         </Content>
         <Footer style={{ textAlign: "center" }}>

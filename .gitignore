@@ -16,6 +16,7 @@ dist/
 # Data
 *.log
 doc_extract.txt
+backend/aistock.db
 
 # Office temp lock files
 ~$*

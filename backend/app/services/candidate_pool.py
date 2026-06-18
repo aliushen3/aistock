@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from app.ontology.property_overlays import merge_product
 from app.services.graph_store import InMemoryGraphStore
 from app.services.hint_score import calc_bottleneck_hint
 from app.services.serenity_trace import serenity_reverse_trace
@@ -21,7 +22,17 @@ def _state_key(sector_id: str, mode: str, code: str) -> tuple[str, str, str]:
     return (sector_id, mode, code)
 
 
+def _entry_id(sector_id: str, mode: str, code: str) -> str:
+    return f"{sector_id}:{mode}:{code}"
+
+
 def get_state(sector_id: str, mode: str, code: str) -> str:
+    from app.ontology import pg_store
+
+    if pg_store.is_db_enabled():
+        row = pg_store.get_candidate_status(_entry_id(sector_id, mode, code))
+        if row:
+            return row["status"]
     entry = _pool_state.get(_state_key(sector_id, mode, code))
     return entry["status"] if entry else "pending"
 
@@ -32,11 +43,29 @@ def set_state(sector_id: str, mode: str, code: str, status: str, reason: str, op
         "reason": reason,
         "operator": operator,
     }
+    from app.ontology import pg_store
+
+    if pg_store.is_db_enabled():
+        pg_store.upsert_candidate_entry(
+            _entry_id(sector_id, mode, code),
+            sector_id,
+            mode,
+            code,
+            status,
+            reason,
+            operator,
+        )
+
+
+def clear_pool_state() -> None:
+    """测试或重置用。"""
+    _pool_state.clear()
 
 
 def build_buy_side_pool(store: InMemoryGraphStore, sector_id: str) -> list[dict]:
     items = []
     for product in store.list_products(sector_id):
+        product = merge_product(product, product["id"]) or product
         status = product.get("bottleneck_status", "none")
         if status not in ("bottleneck_hint", "bottleneck_confirmed"):
             continue

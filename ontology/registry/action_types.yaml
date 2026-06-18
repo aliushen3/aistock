@@ -1,0 +1,97 @@
+# AiStock Ontology Registry — Action Types
+# 将人工投研流程建模为可执行、可审计的业务操作
+
+version: "1.0.0"
+
+action_types:
+  ConfirmSectorBeta:
+    display_name: 确认赛道景气
+    target: Sector
+    permissions: [researcher]
+    parameters:
+      - name: reason
+        type: string
+        required: true
+        min_length: 5
+    effects:
+      - set: { property: status, value: beta_confirmed }
+      - set: { property: human_confirmed, value: true }
+    side_effects: [audit_log]
+
+  ConfirmBottleneck:
+    display_name: 确认瓶颈环节
+    target: Product
+    permissions: [researcher]
+    requires_dual_review: true
+    preconditions:
+      - "bottleneck_status == bottleneck_hint"
+    parameters:
+      - name: reason
+        type: string
+        required: true
+    effects:
+      - set: { property: bottleneck_status, value: bottleneck_confirmed }
+    side_effects: [audit_log, write_knowledge_assertion, sync_neo4j]
+
+  CalibrateChain:
+    display_name: 校准产业链关系
+    target: Link.upstream_of
+    permissions: [researcher]
+    parameters:
+      - name: operation
+        type: enum
+        values: [add, remove, modify]
+      - name: source_id
+        type: string
+        required: true
+      - name: target_id
+        type: string
+        required: true
+      - name: reason
+        type: string
+        required: true
+      - name: evidence_refs
+        type: array
+    side_effects: [audit_log, invalidate_function]
+
+  ApprovePoolEntry:
+    display_name: 确认入池
+    target: CandidatePoolEntry
+    permissions: [researcher, fund_manager]
+    requires_dual_review: true
+    preconditions:
+      - "status == pending"
+    parameters:
+      - name: reason
+        type: string
+        required: true
+        min_length: 5
+    effects:
+      - set: { property: status, value: confirmed }
+    side_effects: [audit_log]
+
+  RejectPoolEntry:
+    display_name: 否决候选
+    target: CandidatePoolEntry
+    permissions: [researcher, risk]
+    parameters:
+      - name: reason
+        type: string
+        required: true
+    effects:
+      - set: { property: status, value: rejected }
+    side_effects: [audit_log]
+
+  PublishReport:
+    display_name: 发布投研报告
+    target: ResearchReport
+    permissions: [researcher]
+    requires_dual_review: true
+    preconditions:
+      - "status == draft"
+    parameters:
+      - name: comments
+        type: string
+    effects:
+      - set: { property: status, value: published }
+    side_effects: [audit_log]

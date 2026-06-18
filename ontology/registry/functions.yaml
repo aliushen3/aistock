@@ -1,0 +1,31 @@
+version: "1.0.0"
+
+functions:
+  calcBottleneckHint:
+    display_name: 瓶颈提示分
+    applies_to: [Product]
+    inputs: [product_id]
+    output: ScoreCard
+    implementation: calc_bottleneck_hint
+    disclaimer: 辅助排序提示，非投资决策
+
+  serenityReverseTrace:
+    display_name: Serenity逆向溯源
+    applies_to: [Sector]
+    inputs: [sector_id]
+    output: TracePathList
+    implementation: serenity_reverse_trace
+
+  buildFusionPool:
+    display_name: 双逻辑融合候选池
+    applies_to: [Sector]
+    inputs: [sector_id, mode]
+    output: CandidateList
+    implementation: build_fusion_pool
+
+  generateReportDraft:
+    display_name: GraphRAG报告草稿
+    applies_to: [Sector]
+    inputs: [sector_id, mode]
+    output: ResearchReport
+    implementation: generate_report_draft

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.audit import audit_log
-from app.services.graph_store import get_store
+from app.ontology.action_executor import ActionError, action_executor
+from app.ontology.object_store import list_sectors as ont_list_sectors
 
 router = APIRouter(prefix="/sectors", tags=["sectors"])
 
@@ -16,7 +16,6 @@ class ConfirmSectorRequest(BaseModel):
 @router.get("")
 def list_sectors():
     """列出赛道；高景气需研究员确认后才为 beta_confirmed。"""
-    store = get_store()
     return {
         "items": [
             {
@@ -26,7 +25,7 @@ def list_sectors():
                 "demand_growth_hint": s.get("demand_growth_hint"),
                 "human_confirmed": s.get("human_confirmed", False),
             }
-            for s in store.list_sectors()
+            for s in ont_list_sectors()
         ],
         "note": "beta_candidate 需人工确认后方可进入后续流程",
     }
@@ -34,15 +33,34 @@ def list_sectors():
 
 @router.post("/{sector_id}/confirm")
 def confirm_sector(sector_id: str, req: ConfirmSectorRequest):
-    """研究员确认/驳回赛道景气（人机协同门控 1）。"""
-    store = get_store()
-    if store.get_sector(sector_id) is None:
+    """研究员确认/驳回赛道景气 — 委托 Ontology Action ConfirmSectorBeta。"""
+    from app.services.graph_store import get_store
+
+    if get_store().get_sector(sector_id) is None:
         raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
-    status = "beta_confirmed" if req.confirmed else "rejected"
-    audit_log.record(
-        action="confirm_sector",
-        operator=req.operator,
-        target=sector_id,
-        detail={"confirmed": req.confirmed, "reason": req.reason, "status": status},
-    )
-    return {"sector_id": sector_id, "status": status, "reason": req.reason}
+
+    if not req.confirmed:
+        from app.ontology.object_store import set_object_property
+
+        set_object_property("Sector", sector_id, "status", "rejected")
+        set_object_property("Sector", sector_id, "human_confirmed", False)
+        return {"sector_id": sector_id, "status": "rejected", "reason": req.reason}
+
+    try:
+        result = action_executor.execute_with_params(
+            action_type="ConfirmSectorBeta",
+            target_type="Sector",
+            target_id=sector_id,
+            params={"reason": req.reason},
+            operator=req.operator,
+        )
+    except ActionError as e:
+        raise HTTPException(status_code=400, detail=e.message) from e
+
+    return {
+        "sector_id": sector_id,
+        "status": "beta_confirmed",
+        "reason": req.reason,
+        "audit_id": result.audit_id,
+        "ontology_action": "ConfirmSectorBeta",
+    }

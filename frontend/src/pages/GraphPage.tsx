@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, Select, Space, Spin, Tag, Typography } from "antd";
 import G6 from "@antv/g6";
 import { getSectorGraph, getSectors, type GraphNode } from "../lib/api";
@@ -11,6 +12,7 @@ const PRODUCT_COLOR = (n: GraphNode) => {
 };
 
 export default function GraphPage() {
+  const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const [sectors, setSectors] = useState<{ id: string; name: string }[]>([]);
@@ -31,6 +33,7 @@ export default function GraphPage() {
       const nodes = g.nodes.map((n) => ({
         id: n.id,
         label: n.type === "product" ? `${n.label}\n${n.hint_score ?? ""}` : n.label,
+        nodeType: n.type,
         type: n.type === "company" ? "rect" : "circle",
         size: n.type === "company" ? [110, 32] : 48,
         style: {
@@ -64,6 +67,12 @@ export default function GraphPage() {
       });
       graph.data({ nodes, edges });
       graph.render();
+      graph.on("node:click", (evt: { item: { getModel: () => { id: string; nodeType?: string } } }) => {
+        const model = evt.item.getModel();
+        if (model.nodeType === "product") {
+          navigate(`/products/${model.id}`);
+        }
+      });
       graphRef.current = graph;
       setLoading(false);
     });
@@ -94,7 +103,7 @@ export default function GraphPage() {
         <Tag color="#722ed1">Serenity 小众环节</Tag>
         <Tag color="#1677ff">普通环节</Tag>
         <Tag color="#52c41a">上市公司</Tag>
-        <Typography.Text type="secondary">（产品节点数字为瓶颈提示分）</Typography.Text>
+        <Typography.Text type="secondary">（点击产品节点查看详情；数字为瓶颈提示分）</Typography.Text>
       </Space>
       <Spin spinning={loading}>
         <div ref={containerRef} style={{ width: "100%", height: 560, border: "1px solid #f0f0f0" }} />

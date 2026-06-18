@@ -117,6 +117,51 @@ export const confirmCandidates = (body: {
   operator?: string;
 }) => api.post("/candidates/confirm", body).then((r) => r.data);
 
+/** Ontology Action API — 推荐新代码使用 */
+export const executeOntologyAction = (
+  actionType: string,
+  target: { type: string; id: string },
+  params: Record<string, unknown>,
+  operator = "analyst"
+) =>
+  api
+    .post(`/ontology/actions/${actionType}/execute`, { target, params, operator })
+    .then((r) => r.data);
+
+export const batchPoolAction = (body: {
+  sector_id: string;
+  mode: string;
+  stock_codes: string[];
+  reason: string;
+  operator?: string;
+  actionType: "ApprovePoolEntry" | "RejectPoolEntry";
+}) =>
+  api
+    .post(`/ontology/actions/${body.actionType}/batch-pool`, {
+      sector_id: body.sector_id,
+      mode: body.mode,
+      stock_codes: body.stock_codes,
+      reason: body.reason,
+      operator: body.operator ?? "analyst",
+    })
+    .then((r) => r.data);
+
+export const getActionTypes = () =>
+  api.get<{ items: { name: string; display_name: string; parameters: unknown[] }[] }>(
+    "/ontology/registry/action-types"
+  ).then((r) => r.data.items);
+
+export const invokeOntologyFunction = (name: string, inputs: Record<string, unknown>) =>
+  api.post(`/ontology/functions/${name}/invoke`, { inputs }).then((r) => r.data);
+
+export const getObjectSet = (setName: string, sectorId: string, mode = "fusion") =>
+  api
+    .get(`/ontology/object-sets/${setName}`, { params: { sector_id: sectorId, mode } })
+    .then((r) => r.data);
+
+export const getProductHintScore = (productId: string) =>
+  api.get(`/graph/product/${productId}/hint-score`).then((r) => r.data);
+
 export const generateReport = (sectorId: string, mode: string) =>
   api.post<Report>("/reasoning/graphrag", { sector_id: sectorId, mode }).then((r) => r.data);
 

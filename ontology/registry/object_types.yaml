@@ -1,0 +1,63 @@
+# AiStock Ontology Registry — Object Types
+# Palantir Ontology 风格语义层定义（Git 版本化）
+# 完整说明见 docs/11-palantir-ontology.md
+
+version: "1.0.0"
+
+object_types:
+  Product:
+    display_name: 产业链产品
+    primary_key: id
+    title_property: name
+    backing:
+      table: ont_product
+    interfaces: [Scorable, Traceable]
+    functions: [calcBottleneckHint]
+
+  Company:
+    display_name: 上市公司
+    primary_key: code
+    title_property: name
+    backing:
+      table: ont_company
+    interfaces: [Traceable]
+
+  Sector:
+    display_name: 行业赛道
+    primary_key: id
+    title_property: name
+    backing:
+      table: ont_sector
+
+  Event:
+    display_name: 产业事件
+    primary_key: id
+    title_property: title
+    backing:
+      table: ont_event
+
+  CandidatePoolEntry:
+    display_name: 候选池条目
+    primary_key: entry_id
+    backing:
+      table: ont_candidate_entry
+    writable_by:
+      - ApprovePoolEntry
+      - RejectPoolEntry
+
+  ResearchReport:
+    display_name: 投研报告
+    primary_key: report_id
+    backing:
+      table: ont_research_report
+    interfaces: [Reviewable]
+    writable_by:
+      - PublishReport
+      - RejectReport
+
+  KnowledgeAssertion:
+    display_name: 知识断言
+    primary_key: id
+    backing:
+      table: knowledge_assertion
+    interfaces: [Traceable]

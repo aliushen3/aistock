@@ -3,6 +3,7 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.ontology.action_executor import ActionError
 from app.services import report as report_service
 from app.services.audit import audit_log
 from app.services.graph_store import get_store
@@ -76,14 +77,25 @@ def get_report(report_id: str):
 
 @router.post("/reports/{report_id}/review")
 def review_report(report_id: str, req: ReviewRequest):
-    """研究员审核报告：approve / reject / revise（报告发布门控）。"""
-    report = report_service.review_report(report_id, req.action, req.comments)
+    """研究员审核报告：approve 走 PublishReport Action；reject/revise 退回草稿。"""
+    try:
+        report = report_service.review_report(
+            report_id, req.action, req.comments, operator=req.operator
+        )
+    except ActionError as e:
+        raise HTTPException(status_code=400, detail={"code": e.code, "message": e.message}) from e
     if report is None:
         raise HTTPException(status_code=404, detail=f"报告不存在: {report_id}")
-    audit_log.record(
-        action="review_report",
-        operator=req.operator,
-        target=report_id,
-        detail={"action": req.action, "comments": req.comments},
-    )
-    return {"report_id": report_id, "action": req.action, "new_status": report["status"]}
+    if req.action != "approve":
+        audit_log.record(
+            action="review_report",
+            operator=req.operator,
+            target=report_id,
+            detail={"action": req.action, "comments": req.comments},
+        )
+    return {
+        "report_id": report_id,
+        "action": req.action,
+        "new_status": report["status"],
+        "ontology_action": "PublishReport" if req.action == "approve" else None,
+    }

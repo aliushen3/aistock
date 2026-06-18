@@ -139,8 +139,26 @@ class InMemoryGraphStore:
         return results
 
 
+_use_db_seed = False
+
+
+def set_store_from_db(enabled: bool) -> None:
+    global _use_db_seed
+    _use_db_seed = enabled
+    invalidate_store_cache()
+
+
+def invalidate_store_cache() -> None:
+    get_store.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def get_store() -> InMemoryGraphStore:
-    with open(SEED_PATH, encoding="utf-8") as f:
-        seed = json.load(f)
+    if _use_db_seed:
+        from app.ontology.seed_loader import build_seed_dict_from_db
+
+        seed = build_seed_dict_from_db()
+    else:
+        with open(SEED_PATH, encoding="utf-8") as f:
+            seed = json.load(f)
     return InMemoryGraphStore(seed)

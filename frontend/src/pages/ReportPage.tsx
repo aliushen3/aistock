@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { App as AntApp, Alert, Button, Card, Descriptions, List, Space, Steps, Tag, Typography } from "antd";
-import { generateReport, reviewReport, type Report } from "../lib/api";
+import { generateReport, reviewReport, executeOntologyAction, type Report } from "../lib/api";
 
 const SECTOR = "sector_ai_compute";
 
@@ -21,9 +21,27 @@ export default function ReportPage() {
 
   const review = async (action: string) => {
     if (!report) return;
-    const r = await reviewReport(report.report_id, action, action === "approve" ? "逻辑链完整" : "需修订");
+    if (action === "approve") {
+      try {
+        await executeOntologyAction(
+          "PublishReport",
+          { type: "ResearchReport", id: report.report_id },
+          { comments: "逻辑链完整" },
+          "analyst"
+        );
+        setReport({ ...report, status: "published" });
+        message.success("报告已发布（PublishReport Action）");
+      } catch (e: unknown) {
+        const err = e as { response?: { data?: { detail?: { message?: string } | string } } };
+        const detail = err.response?.data?.detail;
+        const msg = typeof detail === "object" ? detail?.message : detail;
+        message.error(msg || "发布失败");
+      }
+      return;
+    }
+    const r = await reviewReport(report.report_id, action, "需修订");
     setReport({ ...report, status: r.new_status });
-    message.success(action === "approve" ? "报告已发布（published）" : "已退回草稿");
+    message.success("已退回草稿");
   };
 
   return (

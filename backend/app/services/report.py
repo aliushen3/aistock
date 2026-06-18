@@ -173,17 +173,47 @@ def generate_report(store: InMemoryGraphStore, sector_id: str, mode: str) -> dic
         "disclaimer": DISCLAIMER,
     }
     _report_store[report_id] = report
+    from app.ontology import pg_store
+
+    if pg_store.is_db_enabled():
+        pg_store.save_report(report)
     return report
 
 
 def get_report(report_id: str) -> dict | None:
+    from app.ontology import pg_store
+
+    if pg_store.is_db_enabled():
+        row = pg_store.get_report(report_id)
+        if row:
+            return row
     return _report_store.get(report_id)
 
 
-def review_report(report_id: str, action: str, comments: str) -> dict | None:
-    report = _report_store.get(report_id)
+def review_report(report_id: str, action: str, comments: str, operator: str = "analyst") -> dict | None:
+    report = get_report(report_id)
     if report is None:
         return None
-    report["status"] = "published" if action == "approve" else "draft"
-    report["review"] = {"action": action, "comments": comments}
+    if action == "approve":
+        from app.ontology.action_executor import ActionError, action_executor
+
+        try:
+            action_executor.execute_with_params(
+                action_type="PublishReport",
+                target_type="ResearchReport",
+                target_id=report_id,
+                params={"comments": comments},
+                operator=operator,
+            )
+        except ActionError:
+            raise
+        return get_report(report_id)
+    report["status"] = "draft"
+    report["review"] = {"action": action, "comments": comments, "operator": operator}
+    from app.ontology import pg_store
+
+    if pg_store.is_db_enabled():
+        pg_store.update_report_status(report_id, "draft", report["review"])
+    else:
+        _report_store[report_id] = report
     return report

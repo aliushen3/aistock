@@ -23,12 +23,15 @@
 
 ### 2.1 本体（Ontology）
 
+采用 **OWL + Palantir Ontology 语义层** 双轨架构（详见 [11-palantir-ontology.md](./11-palantir-ontology.md)）：
+
 | 组件 | 技术 | 说明 |
 |------|------|------|
-| 建模工具 | Protégé | 可视化编辑 OWL |
-| 运行时 | owlready2 (Python) | 约束校验、分类推理 |
+| 逻辑约束 | Protégé + owlready2 | OWL 类/约束校验、FIBO 对齐 |
+| 操作语义 | `ontology/registry/*.yaml` | Object/Link/Action/Function 注册表 |
+| 对象存储 | PostgreSQL `ont_*` | Ontology 权威事实源 |
+| 图投影 | Neo4j | 多跳遍历与可视化 |
 | 标准参考 | FIBO 金融本体子集 | 公司、证券等基础概念 |
-| 领域扩展 | 自定义产业链本体 | 产品、赛道、事件、瓶颈、Serenity 标签 |
 
 ### 2.2 知识图谱（Knowledge Graph）
 

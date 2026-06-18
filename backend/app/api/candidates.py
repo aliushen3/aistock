@@ -3,8 +3,10 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.ontology.action_executor import ActionError, action_executor
+from app.ontology.object_store import make_candidate_entry_id
 from app.services.audit import audit_log
-from app.services.candidate_pool import build_pool, set_state
+from app.services.candidate_pool import build_pool
 from app.services.graph_store import get_store
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
@@ -48,24 +50,41 @@ def list_candidates(sector_id: str, mode: PoolMode = PoolMode.FUSION):
 
 @router.post("/confirm")
 def confirm_candidates(req: ConfirmPoolRequest):
-    """研究员/基金经理确认入池或否决（人机协同门控：入池前必经）。"""
+    """研究员/基金经理确认入池或否决 — 委托 Ontology Action 执行。"""
     store = get_store()
     if store.get_sector(req.sector_id) is None:
         raise HTTPException(status_code=404, detail=f"赛道不存在: {req.sector_id}")
+
+    action_type = "ApprovePoolEntry" if req.action == PoolEntryStatus.CONFIRMED else "RejectPoolEntry"
+    results = []
+    errors = []
     for code in req.stock_codes:
-        set_state(req.sector_id, req.mode.value, code, req.action.value, req.reason, req.operator)
-    entry = audit_log.record(
-        action="confirm_candidates",
-        operator=req.operator,
-        target=f"{req.sector_id}:{req.mode.value}",
-        detail={"stock_codes": req.stock_codes, "action": req.action.value, "reason": req.reason},
-    )
+        entry_id = make_candidate_entry_id(req.sector_id, req.mode.value, code)
+        try:
+            r = action_executor.execute_with_params(
+                action_type=action_type,
+                target_type="CandidatePoolEntry",
+                target_id=entry_id,
+                params={"reason": req.reason},
+                operator=req.operator,
+            )
+            results.append({"stock_code": code, "audit_id": r.audit_id})
+        except ActionError as e:
+            errors.append({"stock_code": code, "error": e.message})
+
+    if errors and not results:
+        raise HTTPException(status_code=400, detail={"errors": errors})
+
+    last_audit = results[-1]["audit_id"] if results else None
     return {
         "action": req.action,
         "stock_codes": req.stock_codes,
         "reason": req.reason,
-        "audit_id": entry.id,
-        "message": f"已记录审计日志 #{entry.id}，{len(req.stock_codes)} 个标的状态更新为 {req.action.value}",
+        "audit_id": last_audit,
+        "ontology_action": action_type,
+        "processed": len(results),
+        "errors": errors,
+        "message": f"已通过 Ontology Action {action_type} 处理 {len(results)} 个标的",
     }
 
 

@@ -16,3 +16,4 @@ qdrant-client>=1.7.0
 minio>=7.2.3
 owlready2>=0.43
 openai>=1.10.0
+pytest>=8.0.0
