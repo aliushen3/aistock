@@ -141,9 +141,26 @@ def generate_counter_arguments(store: InMemoryGraphStore, sector_id: str) -> lis
     ]
 
 
-def generate_report(store: InMemoryGraphStore, sector_id: str, mode: str) -> dict:
-    chain, citations = generate_logic_chain(store, sector_id)
-    counters = generate_counter_arguments(store, sector_id)
+def generate_report(store: InMemoryGraphStore, sector_id: str, mode: str, use_graphrag: bool = True) -> dict:
+    from app.services.candidate_pool import build_fusion_pool
+
+    if use_graphrag:
+        from app.services.graphrag import generate_graphrag_report
+
+        fields, engine = generate_graphrag_report(store, sector_id, mode)
+        chain = fields["logic_chain"]
+        citations = fields["citations"]
+        counters = fields["counter_arguments"]
+        unverified = fields["unverified_claims"]
+        rag_context = fields.get("rag_context")
+        generated_by = engine
+    else:
+        chain, citations = generate_logic_chain(store, sector_id)
+        counters = generate_counter_arguments(store, sector_id)
+        unverified = [c["claim"] for c in chain if not c["citations"]]
+        rag_context = None
+        generated_by = "rule_template_v1"
+
     fusion = build_fusion_pool(store, sector_id)
     candidates = [
         {
@@ -155,20 +172,19 @@ def generate_report(store: InMemoryGraphStore, sector_id: str, mode: str) -> dic
         }
         for x in fusion
     ]
-    unverified = [c["claim"] for c in chain if not c["citations"]]
-
     report_id = f"rpt_{next(_report_seq):04d}"
     report = {
         "report_id": report_id,
         "status": "draft",
         "sector_id": sector_id,
         "mode": mode,
-        "generated_by": "rule_template_v1 (未接入LLM)",
+        "generated_by": generated_by,
         "logic_chain": chain,
         "counter_arguments": counters,
         "candidates": candidates,
         "citations": citations,
         "unverified_claims": unverified,
+        "rag_context": rag_context,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "disclaimer": DISCLAIMER,
     }

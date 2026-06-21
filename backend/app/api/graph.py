@@ -24,6 +24,7 @@ def get_sector_graph(sector_id: str, hops: int = Query(default=3, le=5)):
             node["hint_level"] = result.hint_level
             node["bottleneck_status"] = product.get("bottleneck_status")
     graph["note"] = "提示分仅供排序参考，瓶颈确认需研究员人工裁定"
+    graph["traversal_backend"] = getattr(store, "traversal_backend", "memory")
     return graph
 
 
@@ -48,6 +49,8 @@ def get_product_hint_score(product_id: str):
         },
         "hit_rules": result.hit_rules,
         "bottleneck_status": product.get("bottleneck_status", "none"),
+        "serenity_niche": product.get("serenity_niche", False),
+        "layer": product.get("layer"),
         "human_confirmed": product.get("bottleneck_status") == "bottleneck_confirmed",
         "evidence": store.resolve_evidence(result.provenance_ids),
         "note": "提示分仅供排序参考，需研究员确认 bottleneck_confirmed",

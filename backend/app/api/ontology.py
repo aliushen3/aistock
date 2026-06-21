@@ -93,6 +93,13 @@ def get_object_set_endpoint(set_name: str, sector_id: str = "sector_ai_compute",
     return {"object_set": set_name, "count": len(items), "items": items}
 
 
+@router.get("/pending-reviews")
+def list_pending_reviews():
+    from app.services.dual_review import list_pending
+
+    return {"items": list_pending()}
+
+
 @router.post("/actions/{action_type}/execute")
 def execute_action(action_type: str, req: ActionExecuteRequest):
     """执行单个 Ontology Action。"""
@@ -113,8 +120,10 @@ def execute_action(action_type: str, req: ActionExecuteRequest):
     return {
         "action_type": result.action_type,
         "target": {"type": result.target_type, "id": result.target_id},
+        "status": result.status,
         "audit_id": result.audit_id,
         "requires_dual_review": result.requires_dual_review,
+        "pending_id": result.pending_id,
         "message": result.message,
     }
 

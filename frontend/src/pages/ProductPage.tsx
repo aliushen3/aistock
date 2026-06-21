@@ -24,8 +24,10 @@ interface HintScoreData {
   hint_score: number;
   hint_level: string;
   breakdown: Record<string, number>;
-  hit_rules: string[];
+  hit_rules: { rule: string; value: unknown; score: number }[];
   bottleneck_status: string;
+  serenity_niche?: boolean;
+  layer?: string;
   human_confirmed: boolean;
   evidence: Citation[];
   note: string;
@@ -111,8 +113,13 @@ export default function ProductPage() {
                 {data.human_confirmed ? <Tag color="green">是</Tag> : <Tag>否</Tag>}
               </Descriptions.Item>
               <Descriptions.Item label="命中规则">
-                {data.hit_rules.join("、") || "—"}
+                {data.hit_rules.map((r) => r.rule).join("、") || "—"}
               </Descriptions.Item>
+              {data.serenity_niche && (
+                <Descriptions.Item label="Serenity">
+                  <Tag color="purple">小众咽喉环节</Tag>
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <Typography.Title level={5}>提示分拆解</Typography.Title>

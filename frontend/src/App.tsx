@@ -5,6 +5,10 @@ import GraphPage from "./pages/GraphPage";
 import CandidatesPage from "./pages/CandidatesPage";
 import ProductPage from "./pages/ProductPage";
 import ReportPage from "./pages/ReportPage";
+import DashboardPage from "./pages/DashboardPage";
+import AuditPage from "./pages/AuditPage";
+import DiagnosisPage from "./pages/DiagnosisPage";
+import KnowledgePage from "./pages/KnowledgePage";
 
 const { Header, Content, Footer } = Layout;
 
@@ -13,8 +17,12 @@ function AppMenu() {
   const items = [
     { key: "/", label: <Link to="/">首页</Link> },
     { key: "/graph", label: <Link to="/graph">产业图谱</Link> },
+    { key: "/dashboard", label: <Link to="/dashboard">产业看板</Link> },
     { key: "/candidates", label: <Link to="/candidates">候选池</Link> },
     { key: "/report", label: <Link to="/report">投研报告</Link> },
+    { key: "/knowledge", label: <Link to="/knowledge">知识抽取</Link> },
+    { key: "/diagnosis", label: <Link to="/diagnosis">智能诊断</Link> },
+    { key: "/audit", label: <Link to="/audit">审计日志</Link> },
   ];
   return (
     <Menu
@@ -48,9 +56,13 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/graph" element={<GraphPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/candidates" element={<CandidatesPage />} />
             <Route path="/products/:productId" element={<ProductPage />} />
             <Route path="/report" element={<ReportPage />} />
+            <Route path="/knowledge" element={<KnowledgePage />} />
+            <Route path="/diagnosis" element={<DiagnosisPage />} />
+            <Route path="/audit" element={<AuditPage />} />
           </Routes>
         </Content>
         <Footer style={{ textAlign: "center" }}>

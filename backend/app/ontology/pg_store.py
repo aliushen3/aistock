@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.db.models import (
+    OntAuditLog,
     OntCandidateEntry,
+    OntKnowledgeAssertion,
+    OntLinkUpstream,
     OntProduct,
     OntResearchReport,
     OntSector,
@@ -41,6 +44,37 @@ def update_sector_property(sector_id: str, key: str, value) -> None:
             attrs[key] = value
             row.attrs = attrs
         db.commit()
+    finally:
+        db.close()
+
+
+def insert_sector(
+    sector_id: str,
+    name: str,
+    demand_growth_hint: float | None = None,
+    terminal_products: list | None = None,
+    attrs: dict | None = None,
+) -> bool:
+    """新增赛道节点（beta_candidate），已存在则跳过。"""
+    if not _db_enabled:
+        return False
+    db = SessionLocal()
+    try:
+        if db.get(OntSector, sector_id):
+            return False
+        db.add(
+            OntSector(
+                id=sector_id,
+                name=name,
+                status="beta_candidate",
+                demand_growth_hint=demand_growth_hint,
+                human_confirmed=False,
+                terminal_products=terminal_products or [],
+                attrs=attrs or {},
+            )
+        )
+        db.commit()
+        return True
     finally:
         db.close()
 
@@ -186,3 +220,115 @@ def _report_row_to_dict(row: OntResearchReport) -> dict:
         **(row.payload or {}),
     }
     return data
+
+
+def save_audit(action: str, operator: str, target: str, detail: dict | None = None) -> int | None:
+    if not _db_enabled:
+        return None
+    db = SessionLocal()
+    try:
+        row = OntAuditLog(
+            action=action,
+            operator=operator,
+            target=target,
+            detail=detail or {},
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row.id
+    finally:
+        db.close()
+
+
+def list_audits(limit: int = 100) -> list[dict]:
+    if not _db_enabled:
+        return []
+    db = SessionLocal()
+    try:
+        rows = db.scalars(
+            select(OntAuditLog).order_by(OntAuditLog.id.desc()).limit(limit)
+        ).all()
+        return [
+            {
+                "id": r.id,
+                "action": r.action,
+                "operator": r.operator,
+                "target": r.target,
+                "detail": r.detail,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+def save_knowledge_assertion(
+    subject_type: str,
+    subject_id: str,
+    predicate: str,
+    object_value: str,
+    operator: str,
+    reason: str = "",
+    evidence_refs: list | None = None,
+) -> int | None:
+    if not _db_enabled:
+        return None
+    db = SessionLocal()
+    try:
+        row = OntKnowledgeAssertion(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            predicate=predicate,
+            object_value=object_value,
+            evidence_refs=evidence_refs or [],
+            reason=reason,
+            operator=operator,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row.id
+    finally:
+        db.close()
+
+
+def add_upstream_link(source_id: str, target_id: str) -> bool:
+    if not _db_enabled:
+        return False
+    db = SessionLocal()
+    try:
+        exists = db.scalar(
+            select(OntLinkUpstream).where(
+                OntLinkUpstream.source_id == source_id,
+                OntLinkUpstream.target_id == target_id,
+            )
+        )
+        if exists:
+            return False
+        db.add(OntLinkUpstream(source_id=source_id, target_id=target_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def remove_upstream_link(source_id: str, target_id: str) -> bool:
+    if not _db_enabled:
+        return False
+    db = SessionLocal()
+    try:
+        row = db.scalar(
+            select(OntLinkUpstream).where(
+                OntLinkUpstream.source_id == source_id,
+                OntLinkUpstream.target_id == target_id,
+            )
+        )
+        if row is None:
+            return False
+        db.delete(row)
+        db.commit()
+        return True
+    finally:
+        db.close()

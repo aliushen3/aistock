@@ -19,15 +19,33 @@
 
 ## 3. 必经人工确认节点
 
-| 节点 | 系统输出 | 人工动作 | 未确认后果 |
-|------|---------|---------|-----------|
-| 赛道景气确认 | `beta_candidate` 列表 | 确认/驳回 | 不进入后续流程 |
-| 产业链链条 | LLM 抽取的拓扑 | 校准/确认 | 关系保持 draft |
-| 瓶颈标签 | `bottleneck_hint` | 确认→`confirmed` / 否决 | 仅作提示，不入买方池 |
-| Serenity 小众 | `serenity_niche` 候选 | 确认/剔除 | 不进入 Serenity 池 |
-| LLM 报告草稿 | 投研逻辑 + 反证 | 审核/修改/发布 | 不可对外展示 |
-| 候选入池 | 各模式候选清单 | **入池确认** | 不进入正式股票池 |
-| 风险否决 | 反证告警 | 风控确认 | 自动从候选移除 |
+| 节点 | 系统输出 | 智能体（如有） | 人工动作 | 未确认后果 |
+|------|---------|---------------|---------|-----------|
+| 赛道景气确认 | `beta_candidate` / 推荐提案 | SectorRecommendAgent | 采纳 + ConfirmSectorBeta | 不进入后续流程 |
+| 产业链链条 | LLM 抽取拓扑 | KnowledgeIngestAgent | CalibrateChain | 关系保持 draft |
+| 瓶颈标签 | `bottleneck_hint` | BottleneckScoutAgent | ConfirmBottleneck | 仅提示，不入买方池 |
+| 瓶颈缓解 | `bottleneck_easing` 提议 | MonitorWatchAgent | ConfirmBottleneckEasing | 失效瓶颈仍占用买方池 |
+| Serenity 小众 | `serenity_niche` | SerenityPathAgent | ConfirmSerenityNiche | 不进 Serenity 池 |
+| 看多报告草稿 | 看多逻辑链 | ReportGraphRAGAgent | PublishReport 审核 | 不可对外展示 |
+| **空头论点回应** | 看空论点（BearCase） | BearCaseAgent | **RebutBearCase（正面回应）** | **高severity 未回应 → 阻断入池** |
+| 候选入池 | 候选清单 + 三道闸 | CandidateFusionAgent | ApprovePoolEntry | 不进正式池 |
+| 动态复核 | 告警 | MonitorWatchAgent | 按类型确认 | 风险滞留 |
+
+> **原则**：Agent 写提案表（`proposed`），Action 执行器写权威 Ontology。
+
+### 3.2 摩擦预算分级（v3.0）
+
+> 把双人复核与长理由集中到真正高风险处，低风险动作减负，避免研究员绕过系统。对齐主册 [DESIGN.md §8.4](./DESIGN.md)。
+
+| 风险层 | 节点 | 约束强度 |
+|--------|------|---------|
+| **高风险闸** | 候选入池、报告发布、瓶颈确认 | 强约束 + **双人复核** + 理由 ≥ 20 字 + 三道闸全过 |
+| **中风险闸** | 赛道景气确认、Serenity 小众确认、瓶颈缓解确认、空头论点回应 | 单人确认 + 简短理由 |
+| **低风险** | 链条 draft 校准、属性微调 | 默认通过 / 批量确认 / 事后抽审 |
+
+## 3.1 用户五步上手（前端 WorkflowGuide）
+
+① 发现赛道 → ② 研判产业（上传研报=知识增强）→ ③ 筛选标的 → ④ 论证报告 → ⑤ 确认入池
 
 ## 4. 标准工作流
 
@@ -94,16 +112,18 @@ stateDiagram-v2
 
 ### 6.1 候选池界面
 
-- 每条候选展示：逻辑摘要、提示分、证据数、反证数
-- 操作按钮：**确认入池** / **否决** / **待定**
+- 每条候选展示：逻辑摘要、提示分（含保鲜状态）、证据数
+- **三道闸结果卡**：预期差（priced_in）/ 价值捕获（captures_economics）/ 空头论点回应状态
+- 操作按钮：**确认入池** / **否决** / **待定**；高severity 空头论点未回应时入池按钮**置灰**
 - 否决时弹出理由输入框（必填）
 - 已确认项显示确认人与时间
 
-### 6.2 报告审核界面
+### 6.2 报告审核界面（多空对照）
 
-- 左侧：报告正文（段落级 citation 可点击）
-- 右侧：溯源面板、反证清单、人工批注
-- 底部：**通过发布** / **退回修改** / **仅保存草稿**
+- 左侧：看多报告正文（段落级 citation 可点击）
+- **中部：看空论点（BearCase）并排，逐条显示 severity / 回应状态**；每条提供 `RebutBearCase` 回应框
+- 右侧：溯源面板、人工批注
+- 底部：**通过发布** / **退回修改** / **仅保存草稿**（高severity 空头论点未回应时**禁止发布/入池**）
 
 ### 6.3 图谱校准界面
 

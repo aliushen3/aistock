@@ -67,7 +67,7 @@ def build_buy_side_pool(store: InMemoryGraphStore, sector_id: str) -> list[dict]
     for product in store.list_products(sector_id):
         product = merge_product(product, product["id"]) or product
         status = product.get("bottleneck_status", "none")
-        if status not in ("bottleneck_hint", "bottleneck_confirmed"):
+        if status != "bottleneck_confirmed":
             continue
         hint = calc_bottleneck_hint(product)
         for c in store.companies_producing(product["id"]):
@@ -98,6 +98,9 @@ def build_serenity_pool(store: InMemoryGraphStore, sector_id: str) -> list[dict]
     paths = serenity_reverse_trace(store, terminals, sector_id)
     items = []
     for path in paths:
+        product = merge_product(store.get_product(path.niche_product_id), path.niche_product_id)
+        if not product or not product.get("serenity_niche_confirmed"):
+            continue
         for c in path.companies:
             items.append(
                 {
@@ -156,6 +159,26 @@ def build_fusion_pool(store: InMemoryGraphStore, sector_id: str) -> list[dict]:
     return sorted(items, key=lambda x: (x["priority"] != "P0", -x["hint_score"]))
 
 
+def _gate_fields(store: InMemoryGraphStore, sector_id: str, mode: str, code: str) -> dict:
+    """三道闸结果：预期差(闸一) / 价值捕获(闸二) / 空头闸状态(闸三)。"""
+    from app.services import bearcase_store
+    from app.services.edge_signal import compute_edge_signal
+    from app.services.value_capture import compute_value_capture
+
+    company = store.get_company(code)
+    pid = (company.get("produces") or [None])[0] if company else None
+    value = (
+        compute_value_capture(pid, code)
+        if pid
+        else {"captures_economics": "unknown", "degraded": True}
+    )
+    return {
+        "edge_assessment": compute_edge_signal(code),
+        "value_capture": value,
+        "bear_status": bearcase_store.candidate_bear_status(code, sector_id),
+    }
+
+
 def build_pool(store: InMemoryGraphStore, sector_id: str, mode: str) -> list[dict]:
     if mode == "buy_side":
         items = build_buy_side_pool(store, sector_id)
@@ -165,4 +188,5 @@ def build_pool(store: InMemoryGraphStore, sector_id: str, mode: str) -> list[dic
         items = build_fusion_pool(store, sector_id)
     for it in items:
         it["status"] = get_state(sector_id, mode, it["stock_code"])
+        it.update(_gate_fields(store, sector_id, mode, it["stock_code"]))
     return items

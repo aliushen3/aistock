@@ -1,4 +1,6 @@
-# 一期 MVP 范围
+# 一期 MVP 范围（历史参考）
+
+> **v2.0 起请以 [08-implementation-phases.md](./08-implementation-phases.md) 与 DESIGN.md §11 为准。**
 
 ## 1. MVP 目标
 

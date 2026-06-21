@@ -23,3 +23,35 @@ object_sets:
       mode: fusion
       priority: P0
       status: pending
+
+  ProposedSectorRecommendations:
+    object_type: SectorRecommendation
+    filter:
+      status: proposed
+
+  ProposedBottleneckRecommendations:
+    object_type: BottleneckRecommendation
+    filter:
+      status: proposed
+
+  ProposedSerenityRecommendations:
+    object_type: SerenityRecommendation
+    filter:
+      status: proposed
+
+  UnrebuttedBearCases:
+    object_type: BearCase
+    filter:
+      severity: high
+      rebuttal_status: unrebutted
+
+  EasingBottlenecks:
+    object_type: Product
+    filter:
+      bottleneck_status:
+        in: [bottleneck_easing, bottleneck_expired]
+
+  StaleKnowledge:
+    object_type: Product
+    filter:
+      freshness: stale

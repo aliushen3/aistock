@@ -59,6 +59,9 @@ def get_candidate_entry(entry_id: str) -> dict | None:
         "hint_score": item.get("hint_score"),
         "product_name": item.get("product_name"),
         "rationale": item.get("rationale"),
+        "edge_assessment": item.get("edge_assessment"),
+        "value_capture": item.get("value_capture"),
+        "bear_status": item.get("bear_status", "none"),
     }
 
 
@@ -114,9 +117,14 @@ def query_object_set(name: str, filter_extra: dict | None = None) -> list[dict]:
             if _match_filter(s, filt):
                 items.append({"object_type": "Sector", "id": s["id"], **s})
     elif object_type == "Product":
+        from app.services.freshness import product_freshness
+
         for p in get_store().list_products():
             merged = get_product(p["id"])
-            if merged and _match_filter(merged, filt):
+            if not merged:
+                continue
+            merged = {**merged, "freshness": product_freshness(merged)["freshness"]}
+            if _match_filter(merged, filt):
                 items.append({"object_type": "Product", "id": p["id"], **merged})
     elif object_type == "CandidatePoolEntry":
         sector_id = (filter_extra or {}).get("sector_id", "sector_ai_compute")
@@ -127,12 +135,47 @@ def query_object_set(name: str, filter_extra: dict | None = None) -> list[dict]:
             entry = get_candidate_entry(entry_id)
             if entry and _match_filter(entry, filt):
                 items.append({"object_type": "CandidatePoolEntry", **entry})
+    elif object_type == "SectorRecommendation":
+        from app.services.sector_recommendations import list_recommendations
+
+        status = filt.get("status", "proposed")
+        for rec in list_recommendations(status=status, limit=50):
+            if _match_filter(rec, filt):
+                items.append({"object_type": "SectorRecommendation", **rec})
+    elif object_type == "BottleneckRecommendation":
+        from app.services.bottleneck_recommendations import list_recommendations as list_bn
+
+        status = filt.get("status", "proposed")
+        sector_id = (filter_extra or {}).get("sector_id")
+        for rec in list_bn(sector_id=sector_id, status=status, limit=50):
+            if _match_filter(rec, filt):
+                items.append({"object_type": "BottleneckRecommendation", **rec})
+    elif object_type == "SerenityRecommendation":
+        from app.services.serenity_recommendations import list_recommendations as list_ser
+
+        status = filt.get("status", "proposed")
+        sector_id = (filter_extra or {}).get("sector_id")
+        for rec in list_ser(sector_id=sector_id, status=status, limit=50):
+            if _match_filter(rec, filt):
+                items.append({"object_type": "SerenityRecommendation", **rec})
+    elif object_type == "BearCase":
+        from app.services import bearcase_store
+
+        sector_id = (filter_extra or {}).get("sector_id")
+        for b in bearcase_store.list_bear_cases(
+            sector_id=sector_id,
+            severity=filt.get("severity"),
+            status=filt.get("rebuttal_status"),
+            limit=100,
+        ):
+            items.append({"object_type": "BearCase", "id": b["bear_id"], **b})
     return items
 
 
 def _match_filter(obj: dict, filt: dict) -> bool:
     for key, expected in filt.items():
-        if key == "sector_id":
+        # sector_id / mode 为路由参数（候选池按 mode 构建，天然一致），非对象属性过滤
+        if key in ("sector_id", "mode"):
             continue
         val = obj.get(key)
         if isinstance(expected, dict) and "in" in expected:

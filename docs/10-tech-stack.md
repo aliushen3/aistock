@@ -1,17 +1,17 @@
 # 技术栈选型
 
-## 1. 架构总览
+## 1. 架构总览（v2.0）
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Frontend: React 18 + TypeScript + Vite + Ant Design + G6   │
+│  Frontend: React + Ant Design + G6 + WorkflowGuide          │
 ├─────────────────────────────────────────────────────────────┤
-│  API: FastAPI (Python 3.11+)                                │
+│  API: FastAPI                                               │
 ├──────────────┬──────────────┬──────────────┬──────────────┤
-│  业务服务     │  知识工程     │  推理服务     │  任务调度     │
-│  services/   │  kg/         │  reasoning/  │  Celery      │
+│  agents/     │  services/   │  ontology/   │  adapters/   │
+│  ReAct Agent │  业务逻辑     │  Action/Set  │  数据接入     │
 ├──────────────┴──────────────┴──────────────┴──────────────┤
-│  Neo4j │ PostgreSQL │ Qdrant │ Redis │ MinIO              │
+│  Celery + Beat │ Neo4j │ PostgreSQL(ont_*+ods_*) │ Qdrant  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -58,6 +58,9 @@
 | LLM | DeepSeek API / GLM-4 API | 一期 API，不自托管 |
 | 编排 | LangChain（可选） | GraphRAG Pipeline |
 | 抽取 | Prompt + 本体约束 | 三元组抽取 |
+| 看空对抗 | 独立检索 + LLM | BearCaseAgent，不复用看多检索结果（主册 §6.4） |
+
+> **v3.0 LLM 用在刀刃上**：LLM 真正不可替代仅两处——非结构化抽取、多空叙事综合（看多 GraphRAG / 看空 BearCase）；提示分、图遍历、集合运算等保持确定性 Pipeline（主册 §3.4）。
 
 ## 6. 部署
 
@@ -81,7 +84,11 @@ aistock/
 │   │   ├── services/     # 业务逻辑
 │   │   │   ├── hint_score.py
 │   │   │   ├── serenity_trace.py
-│   │   │   └── graphrag.py
+│   │   │   ├── graphrag.py
+│   │   │   ├── bearcase.py        # 🆕 看空对抗（独立检索）
+│   │   │   ├── edge_signal.py     # 🆕 预期差（闸一）
+│   │   │   ├── value_capture.py   # 🆕 价值捕获（闸二）
+│   │   │   └── freshness.py       # 🆕 保鲜/生命周期状态机
 │   │   ├── kg/           # 图谱、Neo4j
 │   │   └── tasks/        # Celery 任务
 │   ├── config/

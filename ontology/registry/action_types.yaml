@@ -31,7 +31,21 @@ action_types:
         required: true
     effects:
       - set: { property: bottleneck_status, value: bottleneck_confirmed }
-    side_effects: [audit_log, write_knowledge_assertion, sync_neo4j]
+    side_effects: [audit_log, write_knowledge_assertion, sync_neo4j, record_hint_outcome]
+
+  RejectBottleneck:
+    display_name: 否决瓶颈提示
+    target: Product
+    permissions: [researcher]
+    preconditions:
+      - "bottleneck_status == bottleneck_hint"
+    parameters:
+      - name: reason
+        type: string
+        required: true
+    effects:
+      - set: { property: bottleneck_status, value: none }
+    side_effects: [audit_log, record_hint_outcome]
 
   CalibrateChain:
     display_name: 校准产业链关系
@@ -61,6 +75,7 @@ action_types:
     requires_dual_review: true
     preconditions:
       - "status == pending"
+      - "validation:bear_rebutted"   # 三道闸闸三：高severity空头未回应则阻断
     parameters:
       - name: reason
         type: string
@@ -94,4 +109,49 @@ action_types:
         type: string
     effects:
       - set: { property: status, value: published }
+    side_effects: [audit_log]
+
+  ConfirmSerenityNiche:
+    display_name: 确认 Serenity 小众环节
+    target: Product
+    permissions: [researcher]
+    preconditions:
+      - "serenity_niche == true"
+    parameters:
+      - name: reason
+        type: string
+        required: true
+    effects:
+      - set: { property: serenity_niche_confirmed, value: true }
+    side_effects: [audit_log, write_knowledge_assertion]
+
+  ConfirmBottleneckEasing:
+    display_name: 确认瓶颈缓解/失效
+    target: Product
+    permissions: [researcher]
+    preconditions:
+      - "bottleneck_status == bottleneck_confirmed"
+    parameters:
+      - name: new_status
+        type: enum
+        values: [bottleneck_easing, bottleneck_expired]
+        required: true
+      - name: reason
+        type: string
+        required: true
+    effects:
+      - set: { property: bottleneck_status, value: param:new_status }
+    side_effects: [audit_log, write_knowledge_assertion, sync_neo4j, record_hint_outcome]
+
+  RebutBearCase:
+    display_name: 回应空头论点
+    target: BearCase
+    permissions: [researcher]
+    parameters:
+      - name: rebuttal
+        type: string
+        required: true
+        min_length: 10
+    effects:
+      - set: { property: rebuttal_status, value: rebutted }
     side_effects: [audit_log]

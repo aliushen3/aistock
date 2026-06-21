@@ -29,3 +29,27 @@ functions:
     inputs: [sector_id, mode]
     output: ResearchReport
     implementation: generate_report_draft
+
+  edgeSignal:
+    display_name: 预期差信号（闸一）
+    applies_to: [Company]
+    inputs: [stock_code]
+    output: EdgeAssessment
+    implementation: edge_signal
+    disclaimer: 预期差为辅助提示，不构成投资建议
+
+  valueCapture:
+    display_name: 价值捕获研判（闸二）
+    applies_to: [Company]
+    inputs: [product_id, company_code]
+    output: ValueCaptureCard
+    implementation: value_capture
+    disclaimer: 价值捕获为辅助提示，不构成投资建议
+
+  generateBearCase:
+    display_name: 看空论点生成（闸三，独立检索）
+    applies_to: [Sector]
+    inputs: [sector_id, mode]
+    output: BearCaseList
+    implementation: generate_bear_case
+    disclaimer: 看空论点供等强对抗，不构成投资建议

@@ -1,16 +1,59 @@
 import { useState } from "react";
-import { App as AntApp, Alert, Button, Card, Descriptions, List, Space, Steps, Tag, Typography } from "antd";
-import { generateReport, reviewReport, executeOntologyAction, type Report } from "../lib/api";
+import { App as AntApp, Alert, Button, Card, Descriptions, Input, List, Modal, Space, Steps, Tag, Typography } from "antd";
+import {
+  generateReport,
+  reviewReport,
+  executeOntologyAction,
+  runBearCaseAgent,
+  getBearCases,
+  rebutBearCase,
+  type BearCase,
+  type Report,
+} from "../lib/api";
 
 const SECTOR = "sector_ai_compute";
 
-const sev = (s: string) => (s === "高" ? "red" : s === "中" ? "orange" : "green");
+const sev = (s: string) => (s === "高" || s === "high" ? "red" : s === "中" || s === "medium" ? "orange" : "green");
 const confColor = (c: string) => (c === "high" ? "green" : c === "medium" ? "orange" : "default");
 
 export default function ReportPage() {
   const { message } = AntApp.useApp();
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
+  const [bears, setBears] = useState<BearCase[]>([]);
+  const [bearLoading, setBearLoading] = useState(false);
+
+  const runBear = () => {
+    setBearLoading(true);
+    runBearCaseAgent({ sector_id: SECTOR, mode: "fusion" })
+      .then((b) => setBears(b.bear_cases))
+      .finally(() => setBearLoading(false));
+  };
+
+  const refreshBears = () => getBearCases(SECTOR).then(setBears);
+
+  const rebut = (bear: BearCase) => {
+    let text = "";
+    Modal.confirm({
+      title: `回应空头论点：${bear.dimension}`,
+      content: (
+        <Input.TextArea
+          rows={3}
+          placeholder="正面回应该风险（≥10 字），将记录审计日志"
+          onChange={(e) => (text = e.target.value)}
+        />
+      ),
+      onOk: async () => {
+        if (text.trim().length < 10) {
+          message.error("回应至少 10 个字");
+          throw new Error("rebuttal too short");
+        }
+        await rebutBearCase(bear.bear_id, text);
+        message.success("已回应空头论点（RebutBearCase）");
+        await refreshBears();
+      },
+    });
+  };
 
   const gen = () => {
     setLoading(true);
@@ -63,6 +106,11 @@ export default function ReportPage() {
               <Tag color={report.status === "published" ? "green" : "orange"}>{report.status}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="生成方式">{report.generated_by}</Descriptions.Item>
+            {report.rag_context && (
+              <Descriptions.Item label="混合检索">
+                {report.rag_context.retrieval_count} 条（{report.rag_context.retrieval_mode}）
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="未溯源论断" span={3}>
               {report.unverified_claims.length === 0 ? (
                 <Tag color="green">0（全部可溯源）</Tag>
@@ -108,6 +156,54 @@ export default function ReportPage() {
               </List.Item>
             )}
           />
+
+          <Space style={{ justifyContent: "space-between", width: "100%" }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              多空对照 · 独立看空论点（BearCase）
+            </Typography.Title>
+            <Button size="small" loading={bearLoading} onClick={runBear}>
+              运行反证 Agent
+            </Button>
+          </Space>
+          {bears.length === 0 ? (
+            <Alert
+              type="info"
+              showIcon
+              message="尚无看空论点。点击「运行反证 Agent」独立检索反面证据，与看多论点等强对抗；高severity 未回应将阻断入池。"
+            />
+          ) : (
+            <List
+              size="small"
+              bordered
+              dataSource={bears}
+              renderItem={(b) => (
+                <List.Item
+                  actions={[
+                    b.rebuttal_status === "rebutted" ? (
+                      <Tag color="green">已回应</Tag>
+                    ) : (
+                      <Button size="small" danger onClick={() => rebut(b)}>
+                        回应
+                      </Button>
+                    ),
+                  ]}
+                >
+                  <Space direction="vertical" size={2} style={{ width: "100%" }}>
+                    <Space wrap>
+                      <Tag color="volcano">{b.stock_code}</Tag>
+                      <Tag>{b.dimension}</Tag>
+                      <Tag color={sev(b.severity)}>severity: {b.severity}</Tag>
+                      <span>{b.risk}</span>
+                    </Space>
+                    <Typography.Text type="secondary">
+                      证伪条件：{b.what_would_confirm || "—"}　引用：{b.citations.join(", ") || "—"}
+                    </Typography.Text>
+                    {b.rebuttal && <Typography.Text type="success">回应：{b.rebuttal}</Typography.Text>}
+                  </Space>
+                </List.Item>
+              )}
+            />
+          )}
 
           <Typography.Title level={5}>证据引用</Typography.Title>
           <List

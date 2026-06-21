@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { App as AntApp, Button, Card, Modal, Space, Table, Tabs, Tag, Tooltip } from "antd";
+import { App as AntApp, Alert, Button, Card, Modal, Space, Table, Tabs, Tag, Tooltip } from "antd";
 import { confirmCandidates, getCandidates, type Candidate } from "../lib/api";
 
 const SECTOR = "sector_ai_compute";
@@ -13,17 +13,47 @@ const statusTag = (s: string) => {
 const priorityTag = (p?: string) =>
   p === "P0" ? <Tag color="magenta">P0 双逻辑共振</Tag> : p ? <Tag>{p}</Tag> : null;
 
+const edgeTag = (c: Candidate) => {
+  const e = c.edge_assessment;
+  if (!e) return null;
+  if (e.priced_in === "high") return <Tag color="red">预期透支</Tag>;
+  if (e.priced_in === "medium") return <Tag color="orange">预期偏高</Tag>;
+  if (e.priced_in === "low") return <Tag color="green">预期差佳</Tag>;
+  return <Tag>预期数据不足</Tag>;
+};
+
+const valueTag = (c: Candidate) => {
+  const v = c.value_capture;
+  if (!v) return null;
+  if (v.captures_economics === "yes") return <Tag color="green">价值可捕获</Tag>;
+  if (v.captures_economics === "partial") return <Tag color="orange">捕获有限</Tag>;
+  if (v.captures_economics === "no") return <Tag color="red">利润不在此环节</Tag>;
+  return <Tag>捕获数据不足</Tag>;
+};
+
+const bearTag = (c: Candidate) => {
+  if (c.bear_status === "unrebutted_high") return <Tag color="red">空头待回应</Tag>;
+  if (c.bear_status === "rebutted") return <Tag color="green">空头已回应</Tag>;
+  return null;
+};
+
 export default function CandidatesPage() {
   const { message } = AntApp.useApp();
   const [mode, setMode] = useState("fusion");
   const [items, setItems] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [gated, setGated] = useState(false);
+  const [gateMessage, setGateMessage] = useState<string | null>(null);
 
   const load = (m: string) => {
     setLoading(true);
     getCandidates(SECTOR, m)
-      .then((d) => setItems(d.items))
+      .then((d) => {
+        setItems(d.items);
+        setGated(!!d.gated);
+        setGateMessage(d.gate_message ?? null);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -84,21 +114,46 @@ export default function CandidatesPage() {
       sorter: (a: Candidate, b: Candidate) => a.hint_score - b.hint_score,
       render: (v: number) => <b>{v}</b>,
     },
+    {
+      title: (
+        <Tooltip title="入池三道闸：预期差 / 价值捕获 / 反证；高severity空头未回应将阻断入池">
+          <span>三道闸 ⓘ</span>
+        </Tooltip>
+      ),
+      width: 230,
+      render: (_: unknown, r: Candidate) => (
+        <Space size={4} wrap>
+          {edgeTag(r)}
+          {valueTag(r)}
+          {bearTag(r)}
+        </Space>
+      ),
+    },
     { title: "逻辑", dataIndex: "rationale", ellipsis: true },
     { title: "状态", dataIndex: "status", width: 90, render: statusTag },
     {
       title: "操作",
       width: 160,
-      render: (_: unknown, r: Candidate) => (
-        <Space>
-          <Button type="primary" size="small" onClick={() => act("confirmed", [r.stock_code])}>
-            入池
-          </Button>
-          <Button size="small" danger onClick={() => act("rejected", [r.stock_code])}>
-            否决
-          </Button>
-        </Space>
-      ),
+      render: (_: unknown, r: Candidate) => {
+        const blocked = r.bear_status === "unrebutted_high";
+        return (
+          <Space>
+            <Tooltip title={blocked ? "存在未回应的高severity空头论点，请先在报告页回应（RebutBearCase）" : ""}>
+              <Button
+                type="primary"
+                size="small"
+                disabled={blocked}
+                onClick={() => act("confirmed", [r.stock_code])}
+              >
+                入池
+              </Button>
+            </Tooltip>
+            <Button size="small" danger onClick={() => act("rejected", [r.stock_code])}>
+              否决
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -111,6 +166,9 @@ export default function CandidatesPage() {
         </Button>
       }
     >
+      {gated && gateMessage && (
+        <Alert type="warning" showIcon message={gateMessage} style={{ marginBottom: 12 }} />
+      )}
       <Tabs
         activeKey={mode}
         onChange={setMode}

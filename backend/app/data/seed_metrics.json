@@ -1,0 +1,17 @@
+{
+  "sector_id": "sector_ai_compute",
+  "metrics": [
+    {"product_id": "prod_gpu", "metric_key": "capacity_utilization", "period": "2025Q4", "value": 0.92, "unit": "ratio"},
+    {"product_id": "prod_gpu", "metric_key": "capacity_utilization", "period": "2026Q1", "value": 0.95, "unit": "ratio"},
+    {"product_id": "prod_gpu", "metric_key": "price_yoy", "period": "2026Q1", "value": 0.18, "unit": "ratio"},
+    {"product_id": "prod_cowos", "metric_key": "capacity_utilization", "period": "2025Q4", "value": 0.98, "unit": "ratio"},
+    {"product_id": "prod_cowos", "metric_key": "capacity_utilization", "period": "2026Q1", "value": 0.99, "unit": "ratio"},
+    {"product_id": "prod_cowos", "metric_key": "expansion_lead_months", "period": "2026Q1", "value": 24, "unit": "months"},
+    {"product_id": "prod_hbm", "metric_key": "capacity_utilization", "period": "2026Q1", "value": 0.97, "unit": "ratio"},
+    {"product_id": "prod_hbm", "metric_key": "price_yoy", "period": "2026Q1", "value": 0.35, "unit": "ratio"},
+    {"product_id": "prod_optical_module", "metric_key": "shipment_yoy", "period": "2026Q1", "value": 0.42, "unit": "ratio"},
+    {"product_id": "prod_optical_module", "metric_key": "gross_margin", "period": "2026Q1", "value": 0.28, "unit": "ratio"},
+    {"product_id": null, "metric_key": "sector_capex_yoy", "period": "2026Q1", "value": 0.25, "unit": "ratio"},
+    {"product_id": null, "metric_key": "sector_demand_growth", "period": "2026Q1", "value": 0.35, "unit": "ratio"}
+  ]
+}

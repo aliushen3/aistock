@@ -1,0 +1,17 @@
+[Unit]
+Description=AiStock Celery Worker
+After=network.target docker.service aistock-api.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=aistock
+Group=aistock
+WorkingDirectory=/opt/aistock/backend
+EnvironmentFile=/opt/aistock/deploy/aistock.env
+ExecStart=/opt/aistock/backend/.venv/bin/celery -A app.celery_app.celery_app worker -l info
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

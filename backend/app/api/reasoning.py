@@ -8,6 +8,7 @@ from app.services import report as report_service
 from app.services.audit import audit_log
 from app.services.graph_store import get_store
 from app.services.serenity_trace import serenity_reverse_trace
+from app.services.workflow import WorkflowGateError, require_sector_confirmed
 
 router = APIRouter(prefix="/reasoning", tags=["reasoning"])
 
@@ -35,7 +36,26 @@ def run_graphrag(req: GraphRAGRequest):
     store = get_store()
     if store.get_sector(req.sector_id) is None:
         raise HTTPException(status_code=404, detail=f"赛道不存在: {req.sector_id}")
+    try:
+        require_sector_confirmed(req.sector_id)
+    except WorkflowGateError as e:
+        raise HTTPException(status_code=403, detail={"code": e.code, "message": e.message}) from e
     return report_service.generate_report(store, req.sector_id, req.mode.value)
+
+
+@router.post("/bearcase")
+def run_bearcase(req: GraphRAGRequest):
+    """生成看空论点（独立检索，多空对照用）；高severity 未回应将阻断入池。"""
+    store = get_store()
+    if store.get_sector(req.sector_id) is None:
+        raise HTTPException(status_code=404, detail=f"赛道不存在: {req.sector_id}")
+    try:
+        require_sector_confirmed(req.sector_id)
+    except WorkflowGateError as e:
+        raise HTTPException(status_code=403, detail={"code": e.code, "message": e.message}) from e
+    from app.services.bearcase import generate_and_store_bear_cases
+
+    return generate_and_store_bear_cases(req.sector_id, req.mode.value)
 
 
 @router.get("/serenity/trace")

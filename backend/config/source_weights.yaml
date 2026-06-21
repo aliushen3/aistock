@@ -1,0 +1,24 @@
+version: "2026.06"
+# 来源权重 × 抽取置信度 = 综合置信度（DESIGN §5.8）
+source_weights:
+  expert_confirmed: 1.0
+  announcement: 1.0
+  prospectus: 1.0
+  industry_association: 0.9
+  customs: 0.9
+  research_report: 0.85
+  broker_deep: 0.85
+  data_vendor: 0.8
+  news: 0.6
+  informal: 0.4
+  llm_extract: 0.4
+  rule_extract: 0.5
+  default: 0.4
+hard_sources:
+  - announcement
+  - prospectus
+  - customs
+  - industry_association
+  - expert_confirmed
+min_independent_sources: 2
+require_hard_source_for_report_only: true

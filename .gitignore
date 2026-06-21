@@ -23,3 +23,4 @@ backend/aistock.db
 
 # Secrets
 .env.local
+deploy/aistock.env

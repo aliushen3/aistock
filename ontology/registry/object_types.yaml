@@ -61,3 +61,12 @@ object_types:
     backing:
       table: knowledge_assertion
     interfaces: [Traceable]
+
+  BearCase:
+    display_name: 看空论点
+    primary_key: bear_id
+    backing:
+      table: ont_bear_case
+    interfaces: [Traceable]
+    writable_by:
+      - RebutBearCase

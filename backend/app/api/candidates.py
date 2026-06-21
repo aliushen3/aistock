@@ -8,6 +8,7 @@ from app.ontology.object_store import make_candidate_entry_id
 from app.services.audit import audit_log
 from app.services.candidate_pool import build_pool
 from app.services.graph_store import get_store
+from app.services.workflow import WorkflowGateError, require_sector_confirmed
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
 
@@ -38,12 +39,21 @@ def list_candidates(sector_id: str, mode: PoolMode = PoolMode.FUSION):
     store = get_store()
     if store.get_sector(sector_id) is None:
         raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
+    gated = False
+    gate_message = None
+    try:
+        require_sector_confirmed(sector_id)
+    except WorkflowGateError as e:
+        gated = True
+        gate_message = e.message
     items = build_pool(store, sector_id, mode.value)
     return {
         "sector_id": sector_id,
         "mode": mode,
         "count": len(items),
         "items": items,
+        "gated": gated,
+        "gate_message": gate_message,
         "note": "所有候选 status=pending，须调用 /confirm 后方可入正式池；提示分不构成投资建议",
     }
 
@@ -54,6 +64,10 @@ def confirm_candidates(req: ConfirmPoolRequest):
     store = get_store()
     if store.get_sector(req.sector_id) is None:
         raise HTTPException(status_code=404, detail=f"赛道不存在: {req.sector_id}")
+    try:
+        require_sector_confirmed(req.sector_id)
+    except WorkflowGateError as e:
+        raise HTTPException(status_code=403, detail={"code": e.code, "message": e.message}) from e
 
     action_type = "ApprovePoolEntry" if req.action == PoolEntryStatus.CONFIRMED else "RejectPoolEntry"
     results = []

@@ -7,7 +7,9 @@
 - **可解释**：每个分项可展开查看命中规则与数据来源
 - **非决策性**：分数不触发自动入池
 - **可配置**：权重与阈值存配置文件，版本化管理
+- **可校准**：权重/阈值是**带版本的先验**，由人工确认结果回流校准，非写死常数（见 §8）
 - **需人工确认**：≥70 分仅打 `bottleneck_hint`，人工确认后升为 `bottleneck_confirmed`
+- **保鲜感知**：分项数据过期（stale）不计分或显著降权，Score Card 标注 `freshness`（主册 §5.7）
 
 ## 2. 计算公式
 
@@ -89,9 +91,9 @@ def calc_bottleneck_hint(product: ProductNode, config: ScoreConfig) -> HintScore
 
 ```yaml
 # config/hint_score.yaml
-version: "1.0.0"
+weight_version: "2026.06"        # 带版本，可校准、可回滚
 weights:
-  supply_rigidity: 0.30
+  supply_rigidity: 0.30          # 初始先验，待样本校准
   tech_barrier: 0.25
   supply_demand_gap: 0.25
   concentration: 0.20
@@ -101,11 +103,26 @@ thresholds:
   hint_low: 30
 ```
 
-## 7. 与 GNN 的演进路径
+## 7. 提示分校准闭环（v3.0）
+
+> 解决「权重凭什么是 0.30 不是 0.25」的伪精确问题。对齐主册 [DESIGN.md §6.1](./DESIGN.md)。
+
+```
+ConfirmBottleneck / RejectBottleneck / ConfirmBottleneckEasing
+   └─记录─▶ outcome 表 (hint_score, 人工裁决, 事后是否兑现)
+              └─周期校准─▶ 各分档命中率 = 确认且事后兑现 / 总数
+                            └─回流─▶ 调整 W1..W4 与阈值（新 weight_version，留痕可回滚）
+```
+
+- **样本不足**（< N 个确认样本）时：Score Card 标注「权重未校准（初始先验）」，提醒谨慎采信。
+- 校准只调权重与阈值，**不引入黑盒**；每个 `weight_version` 可回溯。
+- 结果回溯口径见 [09-evaluation.md](./09-evaluation.md) 第 4 维（Outcome Tracking）。
+
+## 8. 与 GNN 的演进路径
 
 | 阶段 | 方案 |
 |------|------|
-| 一期 | 规则引擎 |
+| 一期 | 规则引擎（+ 校准闭环） |
 | 二期 | 规则 + 案例相似度（CBR）加权 |
 | 三期（可选） | 引入 GNN 作为**辅助分项**，权重 ≤ 20%，且必须可解释 |
 

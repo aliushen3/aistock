@@ -77,15 +77,20 @@ class InMemoryGraphStore:
         nodes, edges = [], []
         prods = self.list_products(sector_id)
         prod_ids = {p["id"] for p in prods}
+        from app.ontology.property_overlays import merge_product
+        from app.services.freshness import product_freshness
+
         for p in prods:
+            merged = merge_product(p, p["id"]) or p
             nodes.append(
                 {
                     "id": p["id"],
                     "label": p["name"],
                     "type": "product",
                     "layer": p["layer"],
-                    "bottleneck_status": p.get("bottleneck_status", "none"),
-                    "serenity_niche": p.get("serenity_niche", False),
+                    "bottleneck_status": merged.get("bottleneck_status", "none"),
+                    "serenity_niche": merged.get("serenity_niche", False),
+                    "freshness": product_freshness(merged)["freshness"],
                 }
             )
         for rel in self.relations:
@@ -138,6 +143,68 @@ class InMemoryGraphStore:
         dfs(terminal_id, [terminal_id])
         return results
 
+    def _rebuild_adjacency(self) -> None:
+        self._upstream_of = {}
+        self._downstream_of = {}
+        for rel in self.relations:
+            if rel.get("type") != "UPSTREAM_OF":
+                continue
+            up, down = rel["source"], rel["target"]
+            self._upstream_of.setdefault(down, []).append(up)
+            self._downstream_of.setdefault(up, []).append(down)
+
+    def add_upstream_link(self, source_id: str, target_id: str) -> bool:
+        key = {"source": source_id, "target": target_id, "type": "UPSTREAM_OF"}
+        if key in self.relations:
+            return False
+        self.relations.append(key)
+        self._rebuild_adjacency()
+        return True
+
+    def remove_upstream_link(self, source_id: str, target_id: str) -> bool:
+        before = len(self.relations)
+        self.relations = [
+            r
+            for r in self.relations
+            if not (
+                r.get("type") == "UPSTREAM_OF"
+                and r["source"] == source_id
+                and r["target"] == target_id
+            )
+        ]
+        if len(self.relations) == before:
+            return False
+        self._rebuild_adjacency()
+        return True
+
+
+class HybridGraphStore(InMemoryGraphStore):
+    """内存权威数据 + Neo4j 遍历读路径。"""
+
+    def upstream_of(self, product_id: str) -> list[str]:
+        from app.services import neo4j_traversal
+
+        neo = neo4j_traversal.upstream_of(product_id)
+        if neo is not None:
+            return neo
+        return super().upstream_of(product_id)
+
+    def reverse_paths(
+        self, terminal_id: str, min_hops: int, max_hops: int
+    ) -> list[list[str]]:
+        from app.services import neo4j_traversal
+
+        neo = neo4j_traversal.reverse_paths(terminal_id, min_hops, max_hops)
+        if neo is not None:
+            return neo
+        return super().reverse_paths(terminal_id, min_hops, max_hops)
+
+    @property
+    def traversal_backend(self) -> str:
+        from app.ontology.graph_projector import is_neo4j_available
+
+        return "neo4j" if is_neo4j_available() else "memory"
+
 
 _use_db_seed = False
 
@@ -153,7 +220,7 @@ def invalidate_store_cache() -> None:
 
 
 @lru_cache(maxsize=1)
-def get_store() -> InMemoryGraphStore:
+def get_store() -> HybridGraphStore:
     if _use_db_seed:
         from app.ontology.seed_loader import build_seed_dict_from_db
 
@@ -161,4 +228,4 @@ def get_store() -> InMemoryGraphStore:
     else:
         with open(SEED_PATH, encoding="utf-8") as f:
             seed = json.load(f)
-    return InMemoryGraphStore(seed)
+    return HybridGraphStore(seed)

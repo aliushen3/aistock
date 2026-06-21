@@ -9,9 +9,9 @@
     {
       "id": "sector_ai_compute",
       "name": "AI算力",
-      "status": "beta_confirmed",
+      "status": "beta_candidate",
       "demand_growth_hint": 35.0,
-      "human_confirmed": true,
+      "human_confirmed": false,
       "terminal_products": ["prod_ai_server"]
     }
   ],
@@ -20,67 +20,67 @@
       "id": "prod_ai_server", "name": "AI服务器", "layer": "terminal", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 6, "cr4_concentration": 0.5, "tech_barrier_score": 60, "supply_demand_score": 60,
       "cost_ratio": 1.0, "substitution_difficulty": "low", "overseas_dependence": "low", "certification_months": 6,
-      "bottleneck_status": "none", "serenity_niche": false, "provenance_ids": ["ev-001"]
+      "bottleneck_status": "none", "serenity_niche": false, "provenance_ids": ["ev-001"], "last_verified_at": "2026-05-20", "half_life_days": 90
     },
     {
       "id": "prod_gpu", "name": "GPU加速卡", "layer": "terminal", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 12, "cr4_concentration": 0.85, "tech_barrier_score": 90, "supply_demand_score": 80,
       "cost_ratio": 0.45, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 12,
-      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-002"]
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-002"], "last_verified_at": "2026-05-18", "half_life_days": 90
     },
     {
       "id": "prod_optical_module", "name": "光模块", "layer": "mid", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 12, "cr4_concentration": 0.65, "tech_barrier_score": 70, "supply_demand_score": 75,
       "cost_ratio": 0.08, "substitution_difficulty": "medium", "overseas_dependence": "medium", "certification_months": 12,
-      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-003"]
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-003"], "last_verified_at": "2026-05-10", "half_life_days": 90
     },
     {
       "id": "prod_hsb_pcb", "name": "高速PCB", "layer": "mid", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 10, "cr4_concentration": 0.55, "tech_barrier_score": 65, "supply_demand_score": 65,
       "cost_ratio": 0.06, "substitution_difficulty": "medium", "overseas_dependence": "low", "certification_months": 9,
-      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-004"]
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-004"], "last_verified_at": "2026-04-01", "half_life_days": 90
     },
     {
       "id": "prod_cowos", "name": "CoWoS先进封装", "layer": "mid", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 24, "cr4_concentration": 0.9, "tech_barrier_score": 92, "supply_demand_score": 90,
       "cost_ratio": 0.12, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 30,
-      "bottleneck_status": "bottleneck_confirmed", "serenity_niche": false, "provenance_ids": ["ev-005", "ev-006"]
+      "bottleneck_status": "bottleneck_confirmed", "serenity_niche": false, "provenance_ids": ["ev-005", "ev-006"], "last_verified_at": "2026-06-01", "half_life_days": 90
     },
     {
       "id": "prod_eml_chip", "name": "EML光芯片", "layer": "material", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 24, "cr4_concentration": 0.8, "tech_barrier_score": 88, "supply_demand_score": 85,
       "cost_ratio": 0.15, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 24,
-      "bottleneck_status": "bottleneck_confirmed", "serenity_niche": false, "provenance_ids": ["ev-007"]
+      "bottleneck_status": "bottleneck_confirmed", "serenity_niche": false, "provenance_ids": ["ev-007"], "last_verified_at": "2026-05-15", "half_life_days": 90
     },
     {
       "id": "prod_ccl", "name": "高频覆铜板(CCL)", "layer": "material", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 18, "cr4_concentration": 0.6, "tech_barrier_score": 70, "supply_demand_score": 70,
       "cost_ratio": 0.2, "substitution_difficulty": "medium", "overseas_dependence": "medium", "certification_months": 12,
-      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-008"]
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": false, "provenance_ids": ["ev-008"], "last_verified_at": "2024-01-01", "half_life_days": 90
     },
     {
       "id": "prod_inp_substrate", "name": "磷化铟衬底", "layer": "material", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 24, "cr4_concentration": 0.75, "tech_barrier_score": 85, "supply_demand_score": 78,
       "cost_ratio": 0.04, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 24,
-      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-009"]
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-009"], "last_verified_at": "2026-05-12", "half_life_days": 90
     },
     {
       "id": "prod_low_dk_glass", "name": "低介电电子布", "layer": "consumable", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 20, "cr4_concentration": 0.7, "tech_barrier_score": 80, "supply_demand_score": 80,
       "cost_ratio": 0.03, "substitution_difficulty": "high", "overseas_dependence": "medium", "certification_months": 18,
-      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-010"]
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-010"], "last_verified_at": "2026-05-08", "half_life_days": 90
     },
     {
       "id": "prod_hf_resin", "name": "高频高速树脂", "layer": "material", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 18, "cr4_concentration": 0.65, "tech_barrier_score": 78, "supply_demand_score": 75,
       "cost_ratio": 0.04, "substitution_difficulty": "high", "overseas_dependence": "medium", "certification_months": 15,
-      "bottleneck_status": "none", "serenity_niche": true, "provenance_ids": ["ev-011"]
+      "bottleneck_status": "none", "serenity_niche": true, "provenance_ids": ["ev-011"], "last_verified_at": "2026-05-05", "half_life_days": 90
     },
     {
       "id": "prod_abf_film", "name": "ABF载板膜", "layer": "material", "sector_id": "sector_ai_compute",
       "expansion_cycle_months": 24, "cr4_concentration": 0.88, "tech_barrier_score": 86, "supply_demand_score": 82,
       "cost_ratio": 0.05, "substitution_difficulty": "high", "overseas_dependence": "high", "certification_months": 24,
-      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-012"]
+      "bottleneck_status": "bottleneck_hint", "serenity_niche": true, "provenance_ids": ["ev-012"], "last_verified_at": "2026-04-20", "half_life_days": 90
     }
   ],
   "companies": [

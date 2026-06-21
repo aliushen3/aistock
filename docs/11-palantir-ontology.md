@@ -102,10 +102,14 @@ object_types:
       cr4_concentration:      { type: float,   source: pipeline.industry_metric }
       bottleneck_status:
         type: enum
-        values: [none, bottleneck_hint, bottleneck_confirmed]
-        writable_by: [action.ConfirmBottleneck, action.RejectBottleneck]
+        values: [none, bottleneck_hint, bottleneck_confirmed, bottleneck_easing, bottleneck_expired]
+        writable_by: [action.ConfirmBottleneck, action.RejectBottleneck, action.ConfirmBottleneckEasing]
       serenity_niche: { type: boolean }
-    interfaces: [Scorable, Traceable]
+      # v3.0 保鲜字段（Perishable 接口）
+      half_life_days:   { type: integer }
+      valid_until:      { type: date }
+      freshness:        { type: enum, values: [fresh, aging, stale] }
+    interfaces: [Scorable, Traceable, Perishable]
     functions:
       - calcBottleneckHint
     permissions:
@@ -149,7 +153,11 @@ object_types:
       status:     { type: enum, values: [pending, confirmed, rejected] }
       priority:   { type: enum, values: [P0, P1, P2] }
       hint_score: { type: float, derived: true }
-    writable_by: [action.ApprovePoolEntry, action.RejectPoolEntry]
+      # v3.0 入池三道闸结果（主册 §2.6）
+      edge_assessment:  { type: json }    # 闸一 预期差 {priced_in, ...}
+      value_capture:    { type: json }    # 闸二 价值捕获 {captures_economics, ...}
+      bear_rebut_status:{ type: enum, values: [none, unrebutted, rebutted] }  # 闸三
+    writable_by: [action.ApprovePoolEntry, action.RejectPoolEntry, action.RebutBearCase]
 
   ResearchReport:
     display_name: 投研报告
@@ -172,6 +180,40 @@ object_types:
       property: { type: string }
       value: { type: json }
       status: { type: enum, values: [draft, pending, confirmed, rejected, deprecated] }
+
+  SectorRecommendation:
+    display_name: 赛道推荐提案
+    primary_key: rec_id
+    backing:
+      table: ont_sector_recommendation
+    properties:
+      rec_id: { type: string }
+      sector_id: { type: string, nullable: true }
+      sector_name: { type: string }
+      beta_score: { type: float }
+      rationale: { type: text }
+      status: { type: enum, values: [proposed, adopted, dismissed] }
+      agent_mode: { type: string }
+      run_id: { type: string }
+    writable_by: [action.AdoptSectorRecommendation, action.DismissSectorRecommendation]
+    interfaces: [Traceable]
+
+  BearCase:                       # v3.0：看空论点（反证一等对象）
+    display_name: 看空论点
+    primary_key: bear_id
+    backing:
+      table: ont_bear_case
+    properties:
+      bear_id:        { type: string }
+      candidate_id:   { type: string }
+      risk:           { type: text }
+      dimension:      { type: enum, values: [技术替代, 新增扩产, 需求下滑, 估值透支, 政策风险, 客户集中度, 库存累积] }
+      severity:       { type: enum, values: [low, medium, high] }
+      probability:    { type: enum, values: [low, medium, high] }
+      what_would_confirm: { type: text }
+      rebuttal:       { type: text, nullable: true }
+      rebuttal_status:{ type: enum, values: [unrebutted, rebutted] }
+    writable_by: [action.RebutBearCase]
     interfaces: [Traceable]
 ```
 
@@ -239,6 +281,13 @@ interfaces:
     status:        { type: string }
     reviewed_by:   { type: string }
     reviewed_at:   { type: datetime }
+
+  Perishable:                     # v3.0：可保鲜/有半衰期对象
+  description: 知识有时效，过期自动降级
+  properties:
+    half_life_days: { type: integer }
+    valid_until:    { type: date }
+    freshness:      { type: string }   # fresh / aging / stale
 ```
 
 ### 3.4 Function（函数）
@@ -273,11 +322,34 @@ functions:
     implementation: app.ontology.functions.build_fusion_pool
 
   generateReportDraft:
-    display_name: GraphRAG报告草稿
+    display_name: GraphRAG报告草稿（看多）
     applies_to: [Sector]
     inputs: [sector_id, mode]
     output: ResearchReport
     implementation: app.ontology.functions.generate_report_draft
+
+  # v3.0 新增：入池三道闸 + 反证
+  edgeSignal:
+    display_name: 预期差信号（闸一）
+    applies_to: [Company]
+    inputs: [stock_code]
+    output: EdgeAssessment
+    implementation: app.ontology.functions.edge_signal
+    disclaimer: 度量市场 price-in，非投资决策
+
+  valueCapture:
+    display_name: 价值捕获研判（闸二）
+    applies_to: [Company]
+    inputs: [product_id, company_code]
+    output: ValueCaptureCard
+    implementation: app.ontology.functions.value_capture
+
+  generateBearCase:
+    display_name: 看空论点生成（闸三，独立检索）
+    applies_to: [CandidatePoolEntry]
+    inputs: [candidate_id]
+    output: BearCaseList
+    implementation: app.ontology.functions.generate_bear_case
 ```
 
 **与现有代码映射：**
@@ -288,6 +360,9 @@ functions:
 | serenityReverseTrace | `services/serenity_trace.py` |
 | buildFusionPool | `services/candidate_pool.py` |
 | generateReportDraft | `services/report.py` |
+| edgeSignal | `services/edge_signal.py` 🆕 |
+| valueCapture | `services/value_capture.py` 🆕 |
+| generateBearCase | `services/bearcase.py` 🆕 |
 
 ### 3.5 Action Type（操作类型）— 核心
 
@@ -348,6 +423,8 @@ action_types:
     target: CandidatePoolEntry
     preconditions:
       - property status == pending
+      - validation: passed_three_gates       # v3.0 三道闸：预期差/价值捕获/反证
+      - property bear_rebut_status != unrebutted  # 高severity 空头未回应则阻断
     parameters:
       - { name: reason, type: string, required: true, min_length: 5 }
     effects:
@@ -374,12 +451,43 @@ action_types:
     preconditions:
       - property status == draft
       - validation: all_claims_have_citations
+      - validation: no_unrebutted_high_bear   # v3.0：高severity 空头论点须已回应
     parameters:
       - { name: comments, type: string }
     effects:
       - set: { property: status, value: published }
     permissions: [researcher]
     requires_dual_review: true
+
+  # v3.0 新增 Action
+  ConfirmBottleneckEasing:
+    display_name: 确认瓶颈缓解/失效
+    target: Product
+    preconditions:
+      - property bottleneck_status == bottleneck_confirmed
+    parameters:
+      - { name: new_status, type: enum, values: [bottleneck_easing, bottleneck_expired] }
+      - { name: reason, type: string, required: true }
+      - { name: evidence_refs, type: array }
+    effects:
+      - set: { property: bottleneck_status, value: $new_status }
+    side_effects:
+      - write_knowledge_assertion
+      - sync_neo4j
+      - audit_log
+      - invalidate_function: buildFusionPool
+    permissions: [researcher]
+
+  RebutBearCase:
+    display_name: 回应空头论点
+    target: BearCase
+    parameters:
+      - { name: rebuttal, type: string, required: true, min_length: 10 }
+    effects:
+      - set: { property: rebuttal_status, value: rebutted }
+    side_effects:
+      - audit_log
+    permissions: [researcher]
 ```
 
 ### 3.6 Object Set（对象集）
@@ -408,6 +516,24 @@ object_sets:
   P0FusionCandidates:
     object_type: CandidatePoolEntry
     filter: { mode: fusion, priority: P0, status: pending }
+
+  ProposedSectorRecommendations:
+    object_type: SectorRecommendation
+    filter: { status: proposed }
+
+  # v3.0 新增
+  StaleKnowledge:
+    object_type: KnowledgeAssertion
+    filter: { freshness: stale, status: confirmed }
+
+  EasingBottlenecks:
+    object_type: Product
+    filter:
+      bottleneck_status: { in: [bottleneck_easing, bottleneck_expired] }
+
+  UnrebuttedBearCases:
+    object_type: BearCase
+    filter: { severity: high, rebuttal_status: unrebutted }
 ```
 
 ---
@@ -586,9 +712,10 @@ flowchart TB
 | Step2 校准拓扑 | Action: `CalibrateChain` on Link |
 | Step3 瓶颈确认 | Function: `calcBottleneckHint` → Action: `ConfirmBottleneck` |
 | Step4 Serenity 溯源 | Function: `serenityReverseTrace` → Object Set |
-| Step5 报告验证 | Function: `generateReportDraft` → Action: `PublishReport` |
-| Step6 入池 | Action: `ApprovePoolEntry` on CandidatePoolEntry |
-| Step7 动态跟踪 | Pipeline 更新 Property → 触发 Function 重算 → 告警 |
+| Step5 看多报告 | Function: `generateReportDraft` → Action: `PublishReport` |
+| Step5' 看空对抗 | Function: `generateBearCase` → Action: `RebutBearCase` |
+| Step6 三道闸入池 | Function: `edgeSignal`/`valueCapture` + 反证 → Action: `ApprovePoolEntry`（三道闸为前置条件） |
+| Step7 动态跟踪/保鲜 | Pipeline 更新 Property → 保鲜状态机 → Action: `ConfirmBottleneckEasing` → 告警 |
 
 ---
 
@@ -683,7 +810,9 @@ Action 执行前校验：`operator.role` 是否在 `action.permissions` 内。
 
 | 项 | 标准 |
 |----|------|
-| Registry 完整性 | 核心 6 个 Object Type、5 个 Link Type、6 个 Action Type 定义完整 |
+| Registry 完整性 | 核心 7 个 Object Type（含 BearCase）、5 个 Link Type、8 个 Action Type（含 ConfirmBottleneckEasing/RebutBearCase）定义完整 |
+| 三道闸闭环 | `edgeSignal`/`valueCapture`/`generateBearCase` 注册为 Function，入池前置条件校验三道闸 |
+| 保鲜状态机 | Perishable 对象 `freshness` 自动流转，`stale` 进 `StaleKnowledge` 并降权 |
 | Action 可追溯 | 每次执行产生 audit + 对象状态变更 |
 | Function 可复用 | 同一 Function 可被 API、报告、Object Set 共用 |
 | 物化一致性 | PostgreSQL 与 Neo4j 投影延迟 < 5min |

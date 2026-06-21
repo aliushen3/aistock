@@ -55,6 +55,10 @@ L0  原始数据    PDF、API 原始响应、爬虫快照
 | 关联交易 | 供应链关系需人工确认 |
 | 信披质量差 | 降低 confidence，要求双源 |
 | 北向 / 融资拥挤度 | 作为拥挤度辅助指标 |
+| **题材 / 游资反身性** | 瓶颈真实但股价已脱离基本面（如题材炒作 +200%）→ 预期差闸（主册 §2.6）标注「预期透支」，基本面瓶颈与价格行情分离展示 |
+| **研报叙事自反性** | 研报在制造它所描述的一致预期；多份同源研报**不计为多源**，关键上下游关系须硬源（公告/招股书/海关）交叉，并打标 `reflexive_narrative`（见 02 知识工程） |
+| **解禁 / 减持** | 作为事件 `TRIGGERS` 纳入监控，影响价值捕获研判与时点风险 |
+| **小市值数据稀疏** | Serenity 标的（低覆盖/小市值/低成交）数据最稀、信披最弱：confidence 降一档、强制双源、关键定性（替代难度/不可替代）**人工确认**，禁止 LLM 单独定性 |
 
 ## 5. 缺失降级策略
 
@@ -63,6 +67,7 @@ L0  原始数据    PDF、API 原始响应、爬虫快照
 | 产能数据 | 提示分该项不计分，标注「数据缺失」 |
 | 上下游关系 | 不进入 Serenity 路径，待专家补充 |
 | 机构覆盖数 | 用成交额分位替代 |
+| 一致预期数据 | 预期差闸标注「无法评估 price-in」，不放行高优先级（P0/P1） |
 | 研报 | 仅依赖图谱事实，报告标注「证据不足」 |
 
 > **原则：宁可缺数据，不可编造数据。** 缺失一律显式降级并在前端标注，禁止用估算值静默填充。
@@ -93,7 +98,10 @@ ods_announcement           # 公告元数据 + MinIO 路径
 ods_industry_metric        # 产业指标时序
 ods_market_daily           # 日度行情
 ods_research_report        # 研报元数据
+ods_consensus              # 一致预期/评级分散度（支撑预期差闸，v3.0 新增）
 ```
+
+> `ods_consensus` 字段建议：`stock_code`、`consensus_eps`、`eps_revision_trend`（up/flat/down）、`rating_dist`（买入/增持/中性/减持计数）、`rating_dispersion`、`fetched_at`。供 `edgeSignal` Function（主册 §6.3）计算 price-in 度量。
 
 知识映射层：
 
@@ -163,3 +171,19 @@ resolution_rule: "announcement 优先"
 | 公告入库延迟 | < 4 小时 |
 | 图谱 confirmed 数据占比 | > 80% |
 | 关键属性双源验证率 | > 60% |
+
+## 9. ODS 落地状态（阶段 A）
+
+| 表 | 用途 | 状态 |
+|----|------|------|
+| `ods_industry_metric` | 产业指标时序 | 🔶 已实现，看板优先读取 |
+| `ods_research_report` | 研报元数据 | ✅ 上传时 `register_uploaded_report` 写入 |
+| `ods_market_daily` | 日度行情 | 🔶 模型已建，适配器 mock |
+| `ods_announcement` | 公告元数据 | 🔶 模型已建，适配器 mock |
+| `ods_consensus` | 一致预期/评级分散度 | ⬜ 规划（支撑预期差闸 F3） |
+
+**适配器**：`backend/app/adapters/` — `mock`（默认）→ `wind` / `cninfo`（规划）
+
+**同步任务**：`app.tasks.data_tasks.sync_industry_metrics`（Celery Beat 日更）
+
+详见 [08-implementation-phases.md](./08-implementation-phases.md)。

@@ -1,5 +1,7 @@
 # 知识工程蓝图
 
+> **v2.0**：研报上传 → 向量索引 → `SectorRecommendAgent` 研报主题抽取；阶段 B 将 `KnowledgeIngestAgent` ReAct 化为主路径。详见 [12-ai-native-agents.md](./12-ai-native-agents.md)。
+
 ## 1. 知识工程在全系统中的位置
 
 本系统的**核心资产是知识**，而非模型或因子。技术栈服务于知识的获取、表示、融合、推理、演化与评估。
@@ -71,9 +73,48 @@
   "verified_by": "analyst_zhang",
   "verified_at": "2025-03-20",
   "status": "confirmed",
-  "ontology_version": "1.2.0"
+  "ontology_version": "1.2.0",
+  "half_life_days": 90,
+  "valid_until": "2025-06-18",
+  "freshness": "fresh",
+  "reflexive_narrative": false
 }
 ```
+
+> **v3.0 保鲜字段**：`half_life_days`（按属性类型配置）、`valid_until = verified_at + half_life`、`freshness ∈ {fresh, aging, stale}`、`reflexive_narrative`（自反性叙事打标）。详见 §2.4 与 §5.2。
+
+### 2.4 知识保鲜与瓶颈生命周期（v3.0）
+
+> 解决「瓶颈半年前成立、现在可能已缓解」的命门。对齐主册 [DESIGN.md §5.7](./DESIGN.md)。
+
+**保鲜状态机（每条 confirmed 知识）：**
+
+```
+fresh ──(超过 half_life)──▶ aging ──(超过 valid_until)──▶ stale
+  ▲                                                         │
+  └────────────── 人工/数据复核刷新 ◀────────────────────────┘
+```
+
+- `stale` 知识：**不参与提示分计算或显著降权**，前端标注「数据可能过期」，进入 `StaleKnowledge` Object Set 与 `knowledge_stale` 告警。
+
+**半衰期参考表（可配置）：**
+
+| 属性类型 | half_life 参考 |
+|---------|---------------|
+| 产能 / 供需缺口 / 涨价 | ~90 天 |
+| CR4 / 竞争格局 / 机构覆盖 | ~180 天 |
+| 扩产周期 / 认证周期 | ~365 天 |
+| 上下游关系结构 | ~720 天 |
+
+**瓶颈生命周期（一等对象状态机）：**
+
+```
+none → bottleneck_hint → bottleneck_confirmed → bottleneck_easing → bottleneck_expired
+                                  ▲                      │
+                                  └──── 重新收紧 ◀────────┘
+```
+
+- 转移由 MonitorWatchAgent 监听 `TRIGGERS` 事件（扩产落地、产能反超、涨价终止、认证放开）提议，经 `ConfirmBottleneckEasing` 人工确认；`easing/expired` 瓶颈不再支撑买方池入池逻辑，相关候选触发复核。
 
 ## 3. 知识溯源（Provenance）
 
@@ -96,6 +137,11 @@ CREATE TABLE knowledge_assertion (
   confidence DECIMAL(3,2),
   status VARCHAR(16),  -- draft / pending / confirmed / rejected / deprecated
   ontology_version VARCHAR(16),
+  half_life_days INTEGER,             -- 保鲜半衰期（按属性类型）
+  last_verified_at TIMESTAMPTZ,       -- 最近核实时间
+  valid_until DATE,                   -- last_verified_at + half_life
+  freshness VARCHAR(8),               -- fresh / aging / stale
+  reflexive_narrative BOOLEAN DEFAULT false,  -- 自反性叙事打标
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ
 );
@@ -167,6 +213,15 @@ CREATE TABLE knowledge_provenance (
 | 第三方数据商 | 0.8 |
 | 新闻舆情 | 0.6 |
 | 博主 / 非正式来源 | 0.4（默认进审核队列） |
+| LLM 抽取 | 0.4（默认进审核队列） |
+
+### 5.4 卖方去偏与自反性叙事（v3.0）
+
+> 防止用研报当上下游关系 ground truth 而整体导入卖方 groupthink。对齐主册 [DESIGN.md §5.8](./DESIGN.md)。
+
+1. **单一研报不得单独 confirm**：将上下游关系升为 `confirmed`，需 ≥2 独立来源，或 1 个硬源（公告/招股书/海关）交叉。
+2. **自反性叙事打标**：某关系/瓶颈判断仅来自卖方研报、且多份研报实为同源观点扩散（同一卖方/同一首发观点）→ 标记 `reflexive_narrative=true`，降权并要求硬源验证。
+3. **同源不计为多源**：多份转述同一首发观点的研报，去重后视为单源。
 
 ### 5.3 实体对齐（Entity Alignment）
 
@@ -228,6 +283,7 @@ CREATE TABLE entity_alias (
 | 链条完整度 | 已确认赛道中，终端到上游材料路径覆盖率 | ≥ 90% |
 | 抽取准确率 | 人工抽检三元组正确率 | ≥ 85% |
 | 溯源覆盖率 | 已展示属性中有溯源的比例 | 100% |
+| 保鲜达标率 | confirmed 知识中未过 `valid_until` 的比例 | ≥ 90% |
 | 校准及时率 | SLA 内完成的任务占比 | ≥ 95% |
 | 冲突未决率 | 冲突断言未仲裁占比 | < 5% |
 | 人工修正回写率 | 研究员修正后写入知识库的比例 | 100% |
