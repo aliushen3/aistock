@@ -2,21 +2,23 @@ import { useEffect, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import { Alert, Card, Col, Row, Statistic, Table, Tag, Typography } from "antd";
 import { getDashboard, type DashboardData } from "../lib/api";
-
-const SECTOR = "sector_ai_compute";
+import { useSector } from "../lib/sectorContext";
 
 export default function DashboardPage() {
+  const { sectorId } = useSector();
   const [data, setData] = useState<DashboardData | null>(null);
   const [gated, setGated] = useState(false);
   const [gateMsg, setGateMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    getDashboard(SECTOR).then((r) => {
+    if (!sectorId) return;
+    setData(null);
+    getDashboard(sectorId).then((r) => {
       setData(r.dashboard);
       setGated(r.gated);
       setGateMsg(r.message ?? null);
     });
-  }, []);
+  }, [sectorId]);
 
   if (!data) return null;
 
@@ -59,6 +61,35 @@ export default function DashboardPage() {
       <Card title="环节产能利用率" style={{ marginBottom: 16 }}>
         <ReactECharts option={capChart} style={{ height: 320 }} />
       </Card>
+      {data.material_metrics && data.material_metrics.length > 0 && (
+        <Card title="材料行情（期货主力，AkShare 真实源）" style={{ marginBottom: 16 }}>
+          <Table
+            size="small"
+            pagination={false}
+            rowKey="material_key"
+            dataSource={data.material_metrics}
+            columns={[
+              { title: "材料", dataIndex: "material_key" },
+              {
+                title: "现价",
+                dataIndex: "price",
+                render: (v: number | null, r: { unit: string }) => (v != null ? `${v} ${r.unit}` : "—"),
+              },
+              {
+                title: "同比",
+                dataIndex: "price_yoy",
+                render: (v: number | null) =>
+                  v != null ? (
+                    <span style={{ color: v >= 0 ? "#cf1322" : "#3f8600" }}>{(v * 100).toFixed(1)}%</span>
+                  ) : (
+                    "—"
+                  ),
+              },
+              { title: "日期", dataIndex: "period", width: 120 },
+            ]}
+          />
+        </Card>
+      )}
       <Card title="环节指标卡片">
         <Table
           size="small"

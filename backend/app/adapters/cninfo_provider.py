@@ -6,7 +6,8 @@ import logging
 from datetime import datetime, timezone
 
 from app.adapters.cninfo_client import CninfoApiError, CninfoClient
-from app.adapters.mock_provider import MockDataAdapter
+from app.adapters.metrics.mock_metrics import MockMetricsAdapter
+from app.adapters.market.mock_market import MockMarketAdapter
 from app.config import CNINFO_API_URL
 
 logger = logging.getLogger(__name__)
@@ -16,16 +17,17 @@ class CninfoDataAdapter:
     name = "cninfo"
 
     def __init__(self) -> None:
-        self._fallback = MockDataAdapter()
+        self._metrics = MockMetricsAdapter()
+        self._market = MockMarketAdapter()
         self.api_url = CNINFO_API_URL
         self.mode = "live" if self.api_url else "stub"
         self._client = CninfoClient() if self.mode == "live" else None
 
     def fetch_industry_metrics(self, sector_id: str) -> list[dict]:
-        return self._fallback.fetch_industry_metrics(sector_id)
+        return self._metrics.fetch_industry_metrics(sector_id)
 
     def fetch_market_daily(self, stock_codes: list[str]) -> list[dict]:
-        return self._fallback.fetch_market_daily(stock_codes)
+        return self._market.fetch_market_daily(stock_codes)
 
     def fetch_announcements(self, stock_codes: list[str], limit: int = 20) -> list[dict]:
         if self.mode == "live" and self._client is not None:

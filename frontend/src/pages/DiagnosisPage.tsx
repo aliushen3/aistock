@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Card, Table, Tag, Typography } from "antd";
 import { getDiagnosis, type DiagnosisItem } from "../lib/api";
-
-const SECTOR = "sector_ai_compute";
+import { useSector } from "../lib/sectorContext";
 
 const verdictColor: Record<string, string> = {
   retail_trap: "red",
@@ -11,11 +10,13 @@ const verdictColor: Record<string, string> = {
 };
 
 export default function DiagnosisPage() {
+  const { sectorId } = useSector();
   const [items, setItems] = useState<DiagnosisItem[]>([]);
 
   useEffect(() => {
-    getDiagnosis(SECTOR).then((r) => setItems(r.items));
-  }, []);
+    if (!sectorId) return;
+    getDiagnosis(sectorId).then((r) => setItems(r.items));
+  }, [sectorId]);
 
   return (
     <Card title="散户 vs 专业模式智能诊断">

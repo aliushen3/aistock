@@ -22,6 +22,7 @@ METRIC_LABELS = {
     "expansion_lead_months": "扩产周期",
     "sector_capex_yoy": "资本开支同比",
     "sector_demand_growth": "需求增速",
+    "material_price": "材料现价",
 }
 
 
@@ -144,11 +145,31 @@ def dashboard_summary(sector_id: str) -> dict:
     sector = store.get_sector(sector_id)
     by_product: dict[str, list] = {}
     sector_level = []
+    material_buckets: dict[str, list] = {}
     for m in metrics:
-        if m["product_id"]:
-            by_product.setdefault(m["product_id"], []).append(m)
-        else:
+        pid = m["product_id"]
+        if not pid:
             sector_level.append(m)
+        elif store.get_product(pid) is not None:
+            by_product.setdefault(pid, []).append(m)
+        else:
+            material_buckets.setdefault(pid, []).append(m)
+
+    material_metrics = []
+    for material_key, ms in material_buckets.items():
+        price = next((x for x in ms if x["metric_key"] == "material_price"), None)
+        yoy = next((x for x in ms if x["metric_key"] == "price_yoy"), None)
+        latest = price or yoy or ms[0]
+        material_metrics.append(
+            {
+                "material_key": material_key,
+                "price": price["value"] if price else None,
+                "unit": price["unit"] if price else "",
+                "price_yoy": yoy["value"] if yoy else None,
+                "period": latest["period"],
+                "data_source": latest.get("data_source", "ods"),
+            }
+        )
 
     product_cards = []
     for pid, ms in by_product.items():
@@ -180,6 +201,7 @@ def dashboard_summary(sector_id: str) -> dict:
         "sector_status": sector.get("status") if sector else None,
         "sector_metrics": sector_level,
         "product_cards": sorted(product_cards, key=lambda x: -(x.get("capacity_utilization") or 0)),
+        "material_metrics": sorted(material_metrics, key=lambda x: x["material_key"]),
         "data_source": data_source,
         "note": note,
     }

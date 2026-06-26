@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, List, Select, Space, Spin, Tag, Typography } from "antd";
 import G6 from "@antv/g6";
-import { getSectorGraph, getSectors, getSerenityTrace, type GraphNode, type SerenityPath } from "../lib/api";
+import { getSectorGraph, getSerenityTrace, type GraphNode, type SerenityPath } from "../lib/api";
+import { useSector } from "../lib/sectorContext";
 
 const PRODUCT_COLOR = (n: GraphNode, highlighted: Set<string>) => {
   if (highlighted.has(n.id)) return "#eb2f96";
@@ -14,21 +15,13 @@ const PRODUCT_COLOR = (n: GraphNode, highlighted: Set<string>) => {
 
 export default function GraphPage() {
   const navigate = useNavigate();
+  const { sectorId, setSectorId, sectors } = useSector();
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
-  const [sectors, setSectors] = useState<{ id: string; name: string }[]>([]);
-  const [sectorId, setSectorId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [paths, setPaths] = useState<SerenityPath[]>([]);
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
   const [traceLoading, setTraceLoading] = useState(false);
-
-  useEffect(() => {
-    getSectors().then((s) => {
-      setSectors(s);
-      if (s.length) setSectorId(s[0].id);
-    });
-  }, []);
 
   const renderGraph = (g: Awaited<ReturnType<typeof getSectorGraph>>, highlight: Set<string>) => {
     if (!containerRef.current) return;

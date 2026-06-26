@@ -28,17 +28,34 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
 USE_NEO4J_TRAVERSAL = os.getenv("USE_NEO4J_TRAVERSAL", "auto").lower()
 
-# 数据接入适配器：mock | wind | cninfo
+# 数据接入适配器（按类型拆分）
+# market: mock | akshare | tushare | auto（auto: tushare 主 → akshare 备）
 DATA_ADAPTER = os.getenv("DATA_ADAPTER", "mock")
+DATA_ADAPTER_MARKET = os.getenv("DATA_ADAPTER_MARKET", "mock")
+DATA_ADAPTER_ANNOUNCEMENT = os.getenv("DATA_ADAPTER_ANNOUNCEMENT", "mock")
+DATA_ADAPTER_METRICS = os.getenv("DATA_ADAPTER_METRICS", "mock")
+# financial: mock | tushare（需 2000 积分）
+DATA_ADAPTER_FINANCIAL = os.getenv("DATA_ADAPTER_FINANCIAL", "mock")
+# research: mock | em（AkShare 东财研报，免费）
+DATA_ADAPTER_RESEARCH = os.getenv("DATA_ADAPTER_RESEARCH", "mock")
 
-# Wind 网关（live 模式需 WIND_API_KEY + WIND_API_URL）
-WIND_API_KEY = os.getenv("WIND_API_KEY", "")
-WIND_API_URL = os.getenv("WIND_API_URL", "http://localhost:8088/wind")
-WIND_API_TIMEOUT = float(os.getenv("WIND_API_TIMEOUT", "30"))
+# 公告/研报回看天数
+ANNOUNCEMENT_LOOKBACK_DAYS = int(os.getenv("ANNOUNCEMENT_LOOKBACK_DAYS", "90"))
+RESEARCH_LOOKBACK_DAYS = int(os.getenv("RESEARCH_LOOKBACK_DAYS", "90"))
 
 # 巨潮网关（live 模式需 CNINFO_API_URL）
 CNINFO_API_URL = os.getenv("CNINFO_API_URL", "")
 CNINFO_API_TIMEOUT = float(os.getenv("CNINFO_API_TIMEOUT", "30"))
+
+# AkShare / Tushare 行情
+AKSHARE_RATE_LIMIT_SEC = float(os.getenv("AKSHARE_RATE_LIMIT_SEC", "0.5"))
+TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "")
+TUSHARE_RATE_LIMIT_SEC = float(os.getenv("TUSHARE_RATE_LIMIT_SEC", "0.3"))
+
+# 行情抓取网络（免费源不稳定时的兜底）
+MARKET_FORCE_IPV4 = os.getenv("MARKET_FORCE_IPV4", "true").lower() in ("1", "true", "yes")
+MARKET_HTTP_MAX_RETRY = int(os.getenv("MARKET_HTTP_MAX_RETRY", "3"))
+MARKET_HTTP_RETRY_BACKOFF_SEC = float(os.getenv("MARKET_HTTP_RETRY_BACKOFF_SEC", "1.0"))
 
 # 向量 embedding：auto 有 LLM_API_KEY 时用 API，否则伪向量
 EMBEDDING_ENABLED = os.getenv("EMBEDDING_ENABLED", "auto").lower()

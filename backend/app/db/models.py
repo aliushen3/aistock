@@ -224,8 +224,50 @@ class OdsAnnouncement(Base):
     title: Mapped[str] = mapped_column(String(512))
     ann_date: Mapped[str] = mapped_column(String(16), index=True)
     category: Mapped[str] = mapped_column(String(64), default="general")
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
     storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(32), default="mock")
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class OdsFinancialStatement(Base):
+    __tablename__ = "ods_financial_statement"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "end_date", "source", name="uq_ods_financial"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stock_code: Mapped[str] = mapped_column(String(16), index=True)
+    end_date: Mapped[str] = mapped_column(String(16), index=True)
+    ann_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    revenue: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_margin: Mapped[float | None] = mapped_column(Float, nullable=True)
+    roe: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="mock")
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class OdsExternalReport(Base):
+    __tablename__ = "ods_external_report"
+    __table_args__ = (
+        UniqueConstraint("report_key", name="uq_ods_external_report"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    report_key: Mapped[str] = mapped_column(String(128), index=True)
+    stock_code: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(512))
+    org_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    rating: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    report_date: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="em")
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

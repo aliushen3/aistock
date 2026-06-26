@@ -9,8 +9,21 @@ from pathlib import Path
 
 from sqlalchemy import func, select
 
-from app.adapters.registry import get_adapter
-from app.db.models import OdsAnnouncement, OdsIndustryMetric, OdsMarketDaily, OdsResearchReport
+from app.adapters.registry import (
+    get_announcement_adapter,
+    get_financial_adapter,
+    get_market_adapter,
+    get_metrics_adapter,
+    get_research_adapter,
+)
+from app.db.models import (
+    OdsAnnouncement,
+    OdsExternalReport,
+    OdsFinancialStatement,
+    OdsIndustryMetric,
+    OdsMarketDaily,
+    OdsResearchReport,
+)
 from app.db.session import SessionLocal
 from app.ontology import pg_store
 
@@ -58,7 +71,7 @@ def seed_ods_metrics_if_empty() -> bool:
 
 def sync_industry_metrics(sector_id: str, adapter_name: str | None = None) -> dict:
     """从适配器拉取指标并 upsert 到 ODS。"""
-    adapter = get_adapter(adapter_name)
+    adapter = get_metrics_adapter(adapter_name)
     records = adapter.fetch_industry_metrics(sector_id)
     if not is_ods_enabled():
         return {"status": "skipped", "reason": "db_disabled", "count": len(records)}
@@ -102,7 +115,7 @@ def sync_industry_metrics(sector_id: str, adapter_name: str | None = None) -> di
 
 
 def sync_market_daily(stock_codes: list[str], adapter_name: str | None = None) -> dict:
-    adapter = get_adapter(adapter_name)
+    adapter = get_market_adapter(adapter_name)
     records = adapter.fetch_market_daily(stock_codes)
     if not is_ods_enabled():
         return {"status": "skipped", "count": len(records)}
@@ -137,7 +150,7 @@ def sync_market_daily(stock_codes: list[str], adapter_name: str | None = None) -
 
 
 def sync_announcements(stock_codes: list[str], adapter_name: str | None = None) -> dict:
-    adapter = get_adapter(adapter_name)
+    adapter = get_announcement_adapter(adapter_name)
     records = adapter.fetch_announcements(stock_codes)
     if not is_ods_enabled():
         return {"status": "skipped", "count": len(records)}
@@ -150,6 +163,7 @@ def sync_announcements(stock_codes: list[str], adapter_name: str | None = None) 
                 existing.title = r["title"]
                 existing.ann_date = r["ann_date"]
                 existing.category = r.get("category")
+                existing.url = r.get("url")
                 existing.source = adapter.name
             else:
                 db.add(
@@ -159,6 +173,93 @@ def sync_announcements(stock_codes: list[str], adapter_name: str | None = None) 
                         title=r["title"],
                         ann_date=r["ann_date"],
                         category=r.get("category"),
+                        url=r.get("url"),
+                        source=adapter.name,
+                    )
+                )
+            upserted += 1
+        db.commit()
+        return {"status": "ok", "adapter": adapter.name, "count": upserted}
+    finally:
+        db.close()
+
+
+def sync_financials(stock_codes: list[str], adapter_name: str | None = None) -> dict:
+    adapter = get_financial_adapter(adapter_name)
+    records = adapter.fetch_financials(stock_codes)
+    if not is_ods_enabled():
+        return {"status": "skipped", "count": len(records)}
+    db = SessionLocal()
+    try:
+        upserted = 0
+        for r in records:
+            existing = db.scalars(
+                select(OdsFinancialStatement).where(
+                    OdsFinancialStatement.stock_code == r["stock_code"],
+                    OdsFinancialStatement.end_date == r["end_date"],
+                    OdsFinancialStatement.source == adapter.name,
+                )
+            ).first()
+            if existing:
+                existing.ann_date = r.get("ann_date")
+                existing.revenue = r.get("revenue")
+                existing.net_profit = r.get("net_profit")
+                existing.gross_margin = r.get("gross_margin")
+                existing.roe = r.get("roe")
+                existing.eps = r.get("eps")
+                existing.ingested_at = datetime.now(timezone.utc)
+            else:
+                db.add(
+                    OdsFinancialStatement(
+                        stock_code=r["stock_code"],
+                        end_date=r["end_date"],
+                        ann_date=r.get("ann_date"),
+                        revenue=r.get("revenue"),
+                        net_profit=r.get("net_profit"),
+                        gross_margin=r.get("gross_margin"),
+                        roe=r.get("roe"),
+                        eps=r.get("eps"),
+                        source=adapter.name,
+                    )
+                )
+            upserted += 1
+        db.commit()
+        return {"status": "ok", "adapter": adapter.name, "count": upserted}
+    finally:
+        db.close()
+
+
+def sync_external_reports(stock_codes: list[str], adapter_name: str | None = None) -> dict:
+    adapter = get_research_adapter(adapter_name)
+    records = adapter.fetch_research_reports(stock_codes)
+    if not is_ods_enabled():
+        return {"status": "skipped", "count": len(records)}
+    db = SessionLocal()
+    try:
+        upserted = 0
+        for r in records:
+            existing = db.scalars(
+                select(OdsExternalReport).where(
+                    OdsExternalReport.report_key == r["report_key"]
+                )
+            ).first()
+            if existing:
+                existing.title = r["title"]
+                existing.org_name = r.get("org_name")
+                existing.rating = r.get("rating")
+                existing.report_date = r.get("report_date")
+                existing.url = r.get("url")
+                existing.source = adapter.name
+            else:
+                db.add(
+                    OdsExternalReport(
+                        report_key=r["report_key"],
+                        stock_code=r.get("stock_code"),
+                        title=r["title"],
+                        org_name=r.get("org_name"),
+                        rating=r.get("rating"),
+                        report_date=r.get("report_date"),
+                        url=r.get("url"),
                         source=adapter.name,
                     )
                 )
@@ -246,6 +347,117 @@ def list_ods_research_reports(sector_id: str | None = None, limit: int = 50) -> 
         db.close()
 
 
+def list_ods_financials(stock_code: str, limit: int = 12) -> list[dict]:
+    if not is_ods_enabled():
+        return []
+    db = SessionLocal()
+    try:
+        rows = db.scalars(
+            select(OdsFinancialStatement)
+            .where(OdsFinancialStatement.stock_code == stock_code)
+            .order_by(OdsFinancialStatement.end_date.desc())
+            .limit(limit)
+        ).all()
+        return [
+            {
+                "stock_code": r.stock_code,
+                "end_date": r.end_date,
+                "ann_date": r.ann_date,
+                "revenue": r.revenue,
+                "net_profit": r.net_profit,
+                "gross_margin": r.gross_margin,
+                "roe": r.roe,
+                "eps": r.eps,
+                "source": r.source,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+def list_ods_external_reports(stock_code: str | None = None, limit: int = 50) -> list[dict]:
+    if not is_ods_enabled():
+        return []
+    db = SessionLocal()
+    try:
+        q = select(OdsExternalReport).order_by(OdsExternalReport.report_date.desc())
+        if stock_code:
+            q = q.where(OdsExternalReport.stock_code == stock_code)
+        rows = db.scalars(q.limit(limit)).all()
+        return [
+            {
+                "report_key": r.report_key,
+                "stock_code": r.stock_code,
+                "title": r.title,
+                "org_name": r.org_name,
+                "rating": r.rating,
+                "report_date": r.report_date,
+                "url": r.url,
+                "source": r.source,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+def latest_market_overlay(stock_codes: list[str]) -> dict[str, dict]:
+    """各代码最近一日行情，供候选池/看板回读真实数据（缺则不覆盖种子）。"""
+    if not is_ods_enabled() or not stock_codes:
+        return {}
+    db = SessionLocal()
+    try:
+        out: dict[str, dict] = {}
+        for code in set(stock_codes):
+            row = db.scalars(
+                select(OdsMarketDaily)
+                .where(OdsMarketDaily.stock_code == code)
+                .order_by(OdsMarketDaily.trade_date.desc())
+                .limit(1)
+            ).first()
+            if row:
+                out[code] = {
+                    "close_price": row.close_price,
+                    "market_cap_billion": row.market_cap_billion,
+                    "pe_percentile": row.pe_percentile,
+                    "trade_date": row.trade_date,
+                    "source": row.source,
+                }
+        return out
+    finally:
+        db.close()
+
+
+def latest_financial_overlay(stock_codes: list[str]) -> dict[str, dict]:
+    """各代码最近一期财报关键科目。"""
+    if not is_ods_enabled() or not stock_codes:
+        return {}
+    db = SessionLocal()
+    try:
+        out: dict[str, dict] = {}
+        for code in set(stock_codes):
+            row = db.scalars(
+                select(OdsFinancialStatement)
+                .where(OdsFinancialStatement.stock_code == code)
+                .order_by(OdsFinancialStatement.end_date.desc())
+                .limit(1)
+            ).first()
+            if row:
+                out[code] = {
+                    "gross_margin": row.gross_margin,
+                    "roe": row.roe,
+                    "revenue": row.revenue,
+                    "net_profit": row.net_profit,
+                    "eps": row.eps,
+                    "end_date": row.end_date,
+                    "source": row.source,
+                }
+        return out
+    finally:
+        db.close()
+
+
 def ods_stats() -> dict:
     if not is_ods_enabled():
         return {"enabled": False}
@@ -257,6 +469,8 @@ def ods_stats() -> dict:
             "research_reports": db.scalar(select(func.count()).select_from(OdsResearchReport)) or 0,
             "market_daily": db.scalar(select(func.count()).select_from(OdsMarketDaily)) or 0,
             "announcements": db.scalar(select(func.count()).select_from(OdsAnnouncement)) or 0,
+            "financials": db.scalar(select(func.count()).select_from(OdsFinancialStatement)) or 0,
+            "external_reports": db.scalar(select(func.count()).select_from(OdsExternalReport)) or 0,
             "adapters": __import__("app.adapters.registry", fromlist=["list_adapters"]).list_adapters(),
         }
     finally:

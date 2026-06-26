@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { App as AntApp, Alert, Button, Card, Modal, Space, Table, Tabs, Tag, Tooltip } from "antd";
+import { App as AntApp, Alert, Button, Card, Modal, Space, Table, Tabs, Tag, Tooltip, Typography } from "antd";
 import { confirmCandidates, getCandidates, type Candidate } from "../lib/api";
-
-const SECTOR = "sector_ai_compute";
+import { useSector } from "../lib/sectorContext";
 
 const statusTag = (s: string) => {
   if (s === "confirmed") return <Tag color="green">已入池</Tag>;
@@ -39,6 +38,7 @@ const bearTag = (c: Candidate) => {
 
 export default function CandidatesPage() {
   const { message } = AntApp.useApp();
+  const { sectorId } = useSector();
   const [mode, setMode] = useState("fusion");
   const [items, setItems] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,8 +47,9 @@ export default function CandidatesPage() {
   const [gateMessage, setGateMessage] = useState<string | null>(null);
 
   const load = (m: string) => {
+    if (!sectorId) return;
     setLoading(true);
-    getCandidates(SECTOR, m)
+    getCandidates(sectorId, m)
       .then((d) => {
         setItems(d.items);
         setGated(!!d.gated);
@@ -57,7 +58,7 @@ export default function CandidatesPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => load(mode), [mode]);
+  useEffect(() => load(mode), [mode, sectorId]);
 
   const act = (action: "confirmed" | "rejected", codes: string[]) => {
     if (!codes.length) {
@@ -79,7 +80,7 @@ export default function CandidatesPage() {
           message.error("理由至少 5 个字");
           throw new Error("reason too short");
         }
-        await confirmCandidates({ sector_id: SECTOR, mode, stock_codes: codes, action, reason, operator: "analyst" });
+        await confirmCandidates({ sector_id: sectorId, mode, stock_codes: codes, action, reason, operator: "analyst" });
         message.success(`已${action === "confirmed" ? "入池" : "否决"} ${codes.length} 个标的，已记录审计日志`);
         setSelected([]);
         load(mode);
@@ -103,6 +104,38 @@ export default function CandidatesPage() {
       ),
     },
     { title: "环节", dataIndex: "product_name", width: 130 },
+    {
+      title: (
+        <Tooltip title="市值/PE分位/毛利率优先取自 ODS 真实行情与财报；ods=已回读真实数据，seed=暂用种子值">
+          <span>估值/财务 ⓘ</span>
+        </Tooltip>
+      ),
+      width: 220,
+      render: (_: unknown, r: Candidate) => (
+        <Space direction="vertical" size={0}>
+          <Space size={4} wrap>
+            {r.market_cap_billion != null && <span>市值 {r.market_cap_billion.toFixed(0)}亿</span>}
+            {r.pe_percentile != null && <span>PE分位 {(r.pe_percentile * 100).toFixed(0)}%</span>}
+            {r.gross_margin != null && <span>毛利 {(r.gross_margin * 100).toFixed(0)}%</span>}
+          </Space>
+          <Space size={4} wrap>
+            <Tag color={r.data_origin === "ods" ? "green" : "default"}>
+              {r.data_origin === "ods" ? "真实数据" : "种子值"}
+            </Tag>
+            {r.market_data_date && (
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                行情 {r.market_data_date}
+              </Typography.Text>
+            )}
+            {r.financial_data_date && (
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                财报 {r.financial_data_date}
+              </Typography.Text>
+            )}
+          </Space>
+        </Space>
+      ),
+    },
     {
       title: (
         <Tooltip title="提示分仅供排序，不构成投资建议">

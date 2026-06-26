@@ -85,6 +85,15 @@ export interface Candidate {
   rationale: string;
   market_cap_billion?: number;
   analyst_coverage?: number;
+  close_price?: number;
+  pe_percentile?: number;
+  gross_margin?: number;
+  roe?: number;
+  market_data_date?: string;
+  market_data_source?: string;
+  financial_data_date?: string;
+  financial_data_source?: string;
+  data_origin?: "ods" | "seed";
   edge_assessment?: EdgeAssessment;
   value_capture?: ValueCaptureCard;
   bear_status?: string;
@@ -230,9 +239,12 @@ export interface SerenityRecommendation {
 }
 
 export interface DataAdapterInfo {
+  kind?: string;
   name: string;
   mode: string;
+  default?: boolean;
   live_configured?: boolean;
+  tushare_configured?: boolean;
   gateway_url?: string | null;
 }
 
@@ -253,8 +265,39 @@ export const getWatchlist = (focus?: string) =>
 export const getDataAdapters = () =>
   api.get<{ items: DataAdapterInfo[]; default: string }>("/data/adapters").then((r) => r.data);
 
+export interface OdsStats {
+  enabled: boolean;
+  industry_metrics?: number;
+  research_reports?: number;
+  market_daily?: number;
+  announcements?: number;
+  financials?: number;
+  external_reports?: number;
+}
+
+export const getOdsStats = () => api.get<OdsStats>("/data/ods/stats").then((r) => r.data);
+
 export const syncSectorMetrics = (sectorId: string, adapter?: string) =>
   api.post(`/data/sync/metrics/${sectorId}`, null, { params: adapter ? { adapter } : undefined }).then((r) => r.data);
+
+export const syncSectorMarket = (sectorId: string, adapter?: string) =>
+  api.post(`/data/sync/market/${sectorId}`, null, { params: adapter ? { adapter } : undefined }).then((r) => r.data);
+
+export const syncSectorAnnouncements = (sectorId: string, adapter?: string) =>
+  api
+    .post(`/data/sync/announcements/${sectorId}`, null, { params: adapter ? { adapter } : undefined })
+    .then((r) => r.data);
+
+export const syncSectorFinancials = (sectorId: string, adapter?: string) =>
+  api
+    .post(`/data/sync/financials/${sectorId}`, null, { params: adapter ? { adapter } : undefined })
+    .then((r) => r.data);
+
+export const syncSectorReports = (sectorId: string, adapter?: string) =>
+  api.post(`/data/sync/reports/${sectorId}`, null, { params: adapter ? { adapter } : undefined }).then((r) => r.data);
+
+export const ingestSectorReports = (sectorId: string) =>
+  api.post(`/data/reports/${sectorId}/ingest`).then((r) => r.data);
 
 export const runKnowledgeIngestAgent = (body: {
   sector_id: string;
@@ -401,6 +444,14 @@ export interface DashboardData {
     capacity_utilization: number | null;
     price_or_shipment_yoy: number | null;
     metrics: MetricItem[];
+  }[];
+  material_metrics?: {
+    material_key: string;
+    price: number | null;
+    unit: string;
+    price_yoy: number | null;
+    period: string;
+    data_source: string;
   }[];
   note: string;
 }

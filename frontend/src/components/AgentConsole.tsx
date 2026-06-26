@@ -87,7 +87,7 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
   };
 
   return (
-    <Card title="智能体控制台（7 Agent + Orchestrator）" style={{ marginBottom: 16 }}>
+    <Card title="智能体控制台（赛道发现 · 产业研判 · 流程编排）" style={{ marginBottom: 16 }}>
       <Tabs
         items={[
           {

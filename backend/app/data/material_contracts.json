@@ -1,0 +1,14 @@
+{
+  "_comment": "sector_id -> {material_key: 期货主力连续合约代码}。赛道由智能体动态推荐，本表按被推荐/确认的赛道按需扩展，下列仅为示例；新赛道补一条映射即可接入材料行情，无需改代码。AI 算力上游材料无公开期货，留空，软指标走研报抽取闭环。",
+  "sector_ai_compute": {},
+  "sector_lithium_battery": {
+    "mat_lithium_carbonate": "LC0",
+    "mat_industrial_silicon": "SI0"
+  },
+  "sector_photovoltaic": {
+    "mat_polysilicon": "PS0",
+    "mat_industrial_silicon": "SI0",
+    "mat_glass": "FG0",
+    "mat_soda_ash": "SA0"
+  }
+}

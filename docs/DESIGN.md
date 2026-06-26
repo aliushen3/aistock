@@ -591,44 +591,58 @@ L1  清洗数据    标准化财报、公告、行业指标
 L0  原始数据    PDF、API 原始响应 → ODS 表
 ```
 
-### 4.2 数据源规划
+### 4.2 数据源规划（已落地全景）
 
-| 类别 | 主数据源 | 更新频率 |
-|------|---------|---------|
-| 财报/估值 | Wind 或 iFinD | 日/季 |
-| 公告 | 巨潮 / 交易所 | 实时 |
-| 研报 | 内部订阅 PDF + 用户上传 | 日 |
-| 一致预期/评级 | 研报库 + 数据商 | 日/周 |
-| 产业指标 | 行业协会 + 适配器 | 周/月 |
-| 供应链 | 公告抽取 + 专家补全 | 事件驱动 |
+> 原 Wind/iFinD 付费源已**全部移除**，改用「免费源 + Tushare Pro 积分」组合，按数据类型拆分适配器；
+> 所有外部数据**先入 ODS，业务侧只读 ODS**，遵循「宁缺数据，不可编造」。
+
+| 类别 | 适配器（kind/name） | 真实数据源 | 获取方式 | 费用 | 频率 | ODS 表 |
+|------|--------------------|-----------|---------|------|------|--------|
+| 行情（收盘/市值/PE 分位） | `market/auto` | Tushare Pro（主）+ AkShare 东财（备） | `pro.daily`+`pro.daily_basic` / `stock_individual_info_em`+`stock_a_lg_indicator` | Tushare 2000 积分 | 日 | `ods_market_daily` |
+| 公告 | `announcement/akshare` | 巨潮资讯 cninfo | `stock_zh_a_disclosure_report_cninfo` + 标题关键词分类 | 免费 | 实时/日 | `ods_announcement` |
+| 研报（元数据） | `research/em` | 东方财富 | `stock_research_report_em`（标题/机构/评级/日期） | 免费 | 日 | `ods_external_report` |
+| 财报（营收/净利/毛利率/ROE/EPS） | `financial/tushare` | Tushare Pro | `pro.income` + `pro.fina_indicator` | 2000 积分 | 季 | `ods_financial_statement` |
+| 材料行情（大宗商品） | `metrics/akshare` | 期货主力连续 | `futures_main_sina` → 现价 + 同比；映射见 `data/material_contracts.json` | 免费 | 日 | `ods_industry_metric` |
+| 产业软指标（产能利用率/扩产周期/出货同比） | 研报抽取桥接 | em 研报标题 → 知识抽取 | `report_ingest_bridge` → 草案 → 人工 confirm | 免费 | 事件驱动 | `ont_knowledge_draft` → 图谱 |
+| 内部研报 PDF | 上传 | 用户上传 | 前端上传 → 解析 | — | 日 | `ods_research_report` |
+| 一致预期/评级分散度 | ⬜ 规划 | 研报库聚合 | — | — | 日/周 | `ods_consensus` 🆕 |
+
+**关于赛道与材料映射**：系统目标是**智能体自动推荐热门赛道**（SectorRecommendAgent 扫描动态观察清单产出 beta 提案），种子里的 `sector_ai_compute` 等仅是示例。`material_contracts.json` 因此按「被推荐/确认的赛道」动态扩展——新赛道确认后补一条 `sector_id → {材料: 合约}` 映射即可接入材料行情，无需改代码。AI 算力上游材料（磷化铟、光芯片等）无公开期货，对应条目留空，材料软指标走研报抽取闭环。
 
 ### 4.3 ODS 表与适配器
 
 | 表 | 用途 | 状态 |
 |----|------|------|
-| `ods_industry_metric` | 产业指标时序 | ✅ 看板优先读取 |
-| `ods_research_report` | 研报元数据 | ✅ 上传时写入 |
-| `ods_market_daily` | 日度行情 | 🔶 mock 适配器 |
-| `ods_announcement` | 公告元数据 | 🔶 mock 适配器 |
+| `ods_market_daily` | 日度行情（收盘/市值/PE 分位） | ✅ `auto`(tushare→akshare) 真实源 |
+| `ods_announcement` | 公告元数据（含分类/链接） | ✅ `akshare` 巨潮真实源 |
+| `ods_external_report` 🆕 | 外部研报元数据（机构/评级） | ✅ `em` 东财真实源 |
+| `ods_financial_statement` 🆕 | 财报关键科目时序 | ✅ `tushare` 真实源（需积分） |
+| `ods_industry_metric` | 产业指标 / 材料行情时序 | ✅ `akshare` 期货材料 + mock 兜底 |
+| `ods_research_report` | 内部研报元数据 | ✅ 上传时写入 |
 | `ods_consensus` 🆕 | 一致预期/评级分散度 | ⬜ 规划（支撑预期差） |
 
 **接入架构**：
 
 ```
-外部 API/文件 → adapters/ → MinIO + PostgreSQL(ODS) → Celery 清洗
-    → 标准层 → 知识抽取/图谱同步 → Agent 工具可读
+外部 API/文件 → adapters/{market,announcement,research,financial,metrics}/
+    → PostgreSQL(ODS) + MinIO → Celery 清洗 → 标准层
+    → 知识抽取/图谱同步 → Agent 工具只读 ODS
 ```
 
-**适配器**：`backend/app/adapters/` — 默认 `mock`，规划 `wind` / `cninfo`。
+**适配器分层**：`backend/app/adapters/` 按数据类型拆分子包，每类含 `mock`（演示）+ 真实源；
+通过 `DATA_ADAPTER_MARKET/ANNOUNCEMENT/METRICS/FINANCIAL/RESEARCH` 环境变量切换，默认 `mock`，生产切真实源。
 
-**同步 API**：
+**同步 / 抽取 API**：
 
-- `GET /api/v1/data/adapters`
-- `GET /api/v1/data/ods/stats`
-- `POST /api/v1/data/sync/metrics/{sector_id}`
-- `POST /api/v1/data/sync/market/{sector_id}`
+- `GET /api/v1/data/adapters` ｜ `GET /api/v1/data/ods/stats`
+- `POST /api/v1/data/sync/metrics/{sector_id}`（材料行情）
+- `POST /api/v1/data/sync/market/{sector_id}`（行情）
+- `POST /api/v1/data/sync/announcements/{sector_id}`（公告）
+- `POST /api/v1/data/sync/financials/{sector_id}`（财报）
+- `POST /api/v1/data/sync/reports/{sector_id}`（研报元数据）
+- `POST /api/v1/data/reports/{sector_id}/ingest`（研报标题 → 知识草案，产能/扩产瓶颈信号）
 
-Celery Beat：`data.sync_industry_metrics` 日更指标。
+Celery Beat：`data.sync_industry_metrics` 日更指标；`data.sync_sector_bundle` 一次性同步行情/公告/财报/研报。
 
 ### 4.4 A 股特有问题
 
@@ -1124,7 +1138,7 @@ aistock/
 ├── ontology/registry/          # Ontology YAML 注册表
 ├── backend/app/
 │   ├── api/                    # REST 路由（含 agents.py, data.py）
-│   ├── adapters/               # 数据适配器（mock → wind/cninfo）
+│   ├── adapters/               # 数据适配器（按类型拆分：market/announcement/research/financial/metrics）
 │   ├── agents/                 # 智能体运行时
 │   │   ├── sector_recommend_agent.py
 │   │   ├── bearcase_agent.py        # 🆕 看空对抗
@@ -1170,11 +1184,11 @@ aistock/
 |------|---------|------|
 | **流程骨架** | ≈ 二期完成 | Ontology Action、门控、双逻辑池、GraphRAG、审计 |
 | **智能体层** | ≈ 二期中期 | 多 Agent + Orchestrator 已上线 |
-| **数据底座** | ≈ 阶段 A 完成 | ODS + wind/cninfo stub + embedding 框架 |
+| **数据底座** | ≈ 阶段 A 完成 | ODS + 免费源真实适配器（行情/公告/研报/财报/材料）+ embedding 框架 |
 | **三条主线（v3.0）** | ⬜ 待建 | 反证 Agent、保鲜状态机、预期差/价值捕获、提示分校准、三道闸 |
 | **距最终目标** | **约 50–55%** | 七层架构 + 三主线加权估算（因主线新增，目标上移） |
 
-> **下一主战场**：① 三条主线落地（§10.4）；② Wind/巨潮 live API；③ 前端多空对照与三道闸 UI。
+> **下一主战场**：① 三条主线落地（§10.4）；② 数据源生产化（Tushare 积分扩容、巨潮/东财抓取稳定性）；③ 前端多空对照与三道闸 UI。
 
 ### 10.2 五阶段建设路线
 
@@ -1196,7 +1210,7 @@ aistock/
 | 双逻辑候选池 / GraphRAG / Serenity | ✅ | 核心算法闭环 |
 | SectorRecommendAgent | ✅ | ReAct + 研报主题 + 告警 |
 | WorkflowGuide | ✅ | 首页五步指引 |
-| ODS + mock 适配器 | 🔶 | 骨架完成，待真实源 |
+| ODS + 真实数据适配器 | ✅ | 行情/公告/研报/财报/材料免费源已接（mock 可切换兜底） |
 | KnowledgeIngestAgent | ✅ ReAct v1 | `/agents/knowledge-ingest/run` |
 | BottleneckScoutAgent | ✅ scout v1 | `/agents/bottleneck-scout/run` |
 | InvestResearchOrchestrator | ✅ v1 | `/agents/orchestrator/run` |
@@ -1307,11 +1321,16 @@ aistock/
 | POST | `/api/v1/agents/orchestrator/run` | 一键投研流水线 |
 | GET | `/api/v1/agents/bottleneck-recommendations` | 瓶颈提案列表 |
 | GET | `/api/v1/knowledge/stale` 🆕 | 保鲜过期清单 |
-| POST | `/api/v1/data/sync/announcements/{sector_id}` | 同步公告到 ODS |
+| POST | `/api/v1/data/sync/announcements/{sector_id}` | 同步公告到 ODS（akshare 巨潮） |
+| POST | `/api/v1/data/sync/market/{sector_id}` | 同步行情到 ODS（auto: tushare→akshare） |
+| POST | `/api/v1/data/sync/financials/{sector_id}` 🆕 | 同步财报到 ODS（tushare） |
+| POST | `/api/v1/data/sync/reports/{sector_id}` 🆕 | 同步研报元数据到 ODS（em 东财） |
+| POST | `/api/v1/data/reports/{sector_id}/ingest` 🆕 | 研报标题 → 知识草案（产能/扩产信号） |
 | GET | `/api/v1/agents/sector-recommendations` | 赛道提案列表 |
 | POST | `/api/v1/agents/sector-recommendations/{id}/adopt` | 采纳提案 |
+| GET | `/api/v1/data/adapters` | 适配器清单与状态 |
 | GET | `/api/v1/data/ods/stats` | ODS 统计 |
-| POST | `/api/v1/data/sync/metrics/{sector_id}` | 同步产业指标 |
+| POST | `/api/v1/data/sync/metrics/{sector_id}` | 同步产业指标/材料行情（akshare 期货） |
 | GET | `/api/v1/alerts/global` | 全局告警 |
 | POST | `/api/v1/ontology/actions/{type}/execute` | 执行 Ontology Action |
 | GET | `/api/v1/ontology/object-sets/{name}` | 查询 Object Set |

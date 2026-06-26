@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { App as AntApp, Alert, Button, Card, Descriptions, Input, List, Modal, Space, Steps, Tag, Typography } from "antd";
 import {
   generateReport,
@@ -10,27 +10,33 @@ import {
   type BearCase,
   type Report,
 } from "../lib/api";
-
-const SECTOR = "sector_ai_compute";
+import { useSector } from "../lib/sectorContext";
 
 const sev = (s: string) => (s === "高" || s === "high" ? "red" : s === "中" || s === "medium" ? "orange" : "green");
 const confColor = (c: string) => (c === "high" ? "green" : c === "medium" ? "orange" : "default");
 
 export default function ReportPage() {
   const { message } = AntApp.useApp();
+  const { sectorId } = useSector();
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [bears, setBears] = useState<BearCase[]>([]);
   const [bearLoading, setBearLoading] = useState(false);
 
+  useEffect(() => {
+    setReport(null);
+    setBears([]);
+  }, [sectorId]);
+
   const runBear = () => {
+    if (!sectorId) return;
     setBearLoading(true);
-    runBearCaseAgent({ sector_id: SECTOR, mode: "fusion" })
+    runBearCaseAgent({ sector_id: sectorId, mode: "fusion" })
       .then((b) => setBears(b.bear_cases))
       .finally(() => setBearLoading(false));
   };
 
-  const refreshBears = () => getBearCases(SECTOR).then(setBears);
+  const refreshBears = () => getBearCases(sectorId).then(setBears);
 
   const rebut = (bear: BearCase) => {
     let text = "";
@@ -56,8 +62,9 @@ export default function ReportPage() {
   };
 
   const gen = () => {
+    if (!sectorId) return;
     setLoading(true);
-    generateReport(SECTOR, "fusion")
+    generateReport(sectorId, "fusion")
       .then(setReport)
       .finally(() => setLoading(false));
   };

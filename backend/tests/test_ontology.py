@@ -399,69 +399,388 @@ def test_ods_sync_and_metrics():
     assert direct["status"] in ("ok", "skipped")
 
 
-def test_wind_and_cninfo_adapters():
-    from app.adapters.registry import get_adapter, list_adapters
+def test_typed_adapters_registry():
+    from app.adapters.registry import get_adapter, get_market_adapter, list_adapters
 
     names = {a["name"] for a in list_adapters()}
-    assert {"mock", "wind", "cninfo"}.issubset(names)
+    assert {"mock", "cninfo", "akshare", "tushare", "auto"}.issubset(names)
+    assert "wind" not in names
 
-    wind = get_adapter("wind")
-    assert wind.mode == "stub"
-    sync = wind.fetch_industry_metrics("sector_ai_compute")
-    assert len(sync) >= 1
+    market_names = {a["name"] for a in list_adapters() if a.get("kind") == "market"}
+    assert {"mock", "akshare", "tushare", "auto"}.issubset(market_names)
+
+    financial_names = {a["name"] for a in list_adapters() if a.get("kind") == "financial"}
+    assert {"mock", "tushare"}.issubset(financial_names)
+
+    research_names = {a["name"] for a in list_adapters() if a.get("kind") == "research"}
+    assert {"mock", "em"}.issubset(research_names)
+
+    announcement_names = {a["name"] for a in list_adapters() if a.get("kind") == "announcement"}
+    assert {"mock", "cninfo", "akshare"}.issubset(announcement_names)
+
+    metrics_names = {a["name"] for a in list_adapters() if a.get("kind") == "metrics"}
+    assert {"mock", "akshare"}.issubset(metrics_names)
 
     r = client.post(
         "/api/v1/data/sync/metrics/sector_ai_compute",
-        params={"adapter": "wind"},
+        params={"adapter": "mock"},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["status"] in ("ok", "skipped")
-    assert body.get("adapter") == "wind" or body.get("count", 0) >= 1
+    assert body.get("adapter") == "mock" or body.get("count", 0) >= 1
 
     ann = client.post(
         "/api/v1/data/sync/announcements/sector_ai_compute",
         params={"adapter": "cninfo"},
     )
     assert ann.status_code == 200
-    assert ann.json()["adapter"] == "cninfo"
-    assert ann.json()["count"] >= 1
+    ann_body = ann.json()
+    assert ann_body["status"] in ("ok", "skipped")
+    if ann_body["status"] == "ok":
+        assert ann_body["adapter"] == "cninfo"
+
+    market = get_market_adapter("mock")
+    assert market.name == "mock"
+    mk = market.fetch_market_daily(["AI0001"])
+    assert len(mk) == 1
+
+    composite = get_adapter("akshare")
+    assert composite.name == "akshare"
 
     health = client.get("/api/v1/health")
     assert health.status_code == 200
     assert "data_adapters" in health.json()["components"]
 
 
-def test_wind_live_client(monkeypatch):
-    from app.adapters.wind_client import WindClient
-    from app.adapters.wind_provider import WindDataAdapter
+def test_akshare_market_adapter(monkeypatch):
+    from app.adapters.market.akshare_provider import AkshareMarketAdapter
+
+    def fake_fetch(stock_codes):
+        return [
+            {
+                "stock_code": "600519",
+                "trade_date": "2026-06-24",
+                "close_price": 1700.0,
+                "market_cap_billion": 21000.0,
+                "pe_percentile": 0.72,
+            }
+        ]
+
+    monkeypatch.setattr(
+        "app.adapters.market.akshare_provider.fetch_market_rows",
+        fake_fetch,
+    )
+    adapter = AkshareMarketAdapter()
+    rows = adapter.fetch_market_daily(["600519.SH"])
+    assert rows[0]["stock_code"] == "600519"
+    assert rows[0]["market_cap_billion"] == 21000.0
+
+    r = client.post(
+        "/api/v1/data/sync/market/sector_ai_compute",
+        params={"adapter": "akshare"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] in ("ok", "skipped")
+    if body["status"] == "ok":
+        assert body["adapter"] == "akshare"
+
+
+def test_tushare_market_adapter(monkeypatch):
+    from app.adapters.market.tushare_provider import TushareMarketAdapter
+
+    monkeypatch.setenv("TUSHARE_TOKEN", "test-token")
+
+    def fake_fetch(stock_codes):
+        return [
+            {
+                "stock_code": "000001",
+                "trade_date": "2026-06-24",
+                "close_price": 12.5,
+                "market_cap_billion": 2400.0,
+                "pe_percentile": 0.55,
+            }
+        ]
+
+    monkeypatch.setattr(
+        "app.adapters.market.tushare_provider.fetch_market_rows",
+        fake_fetch,
+    )
+    adapter = TushareMarketAdapter()
+    rows = adapter.fetch_market_daily(["000001.SZ"])
+    assert rows[0]["stock_code"] == "000001"
+    assert rows[0]["pe_percentile"] == 0.55
+
+
+def test_auto_market_adapter_fallback():
+    from app.adapters.market.auto_provider import AutoMarketAdapter
 
     sample = [
         {
-            "sector_id": "sector_ai_compute",
-            "product_id": "prod_gpu",
-            "metric_key": "capacity_utilization",
-            "period": "2024Q4",
-            "value": 0.92,
-            "unit": "ratio",
+            "stock_code": "600519",
+            "trade_date": "2026-06-24",
+            "close_price": 1700.0,
+            "market_cap_billion": 21000.0,
+            "pe_percentile": 0.72,
         }
     ]
 
-    def fake_request(self, method, path, params=None):
-        if path == "/v1/industry-metrics":
-            return {"items": sample}
-        if path == "/v1/market-daily":
-            return {"items": [{"stock_code": "600000", "trade_date": "2024-01-01", "market_cap_billion": 10}]}
-        return {"items": []}
+    class _FailTushare:
+        mode = "live"
 
-    monkeypatch.setenv("WIND_API_KEY", "test-key")
-    monkeypatch.setattr(WindClient, "_request", fake_request)
+        def fetch_market_daily(self, codes):
+            raise RuntimeError("tushare down")
 
-    adapter = WindDataAdapter()
-    assert adapter.mode == "live"
-    rows = adapter.fetch_industry_metrics("sector_ai_compute")
-    assert rows[0]["metric_key"] == "capacity_utilization"
-    assert rows[0]["value"] == 0.92
+    class _OkAkshare:
+        mode = "live"
+
+        def fetch_market_daily(self, codes):
+            return sample
+
+    adapter = AutoMarketAdapter()
+    adapter._tushare = _FailTushare()
+    adapter._akshare = _OkAkshare()
+    rows = adapter.fetch_market_daily(["600519.SH"])
+    assert rows[0]["stock_code"] == "600519"
+    assert rows[0]["market_cap_billion"] == 21000.0
+
+
+def test_akshare_info_parsing(monkeypatch):
+    from app.adapters.market import akshare_provider
+
+    monkeypatch.setattr(
+        akshare_provider,
+        "_info_map",
+        lambda code: {"最新": "7.05", "总市值": "84111501770.55"},
+    )
+    monkeypatch.setattr(akshare_provider, "_pe_history", lambda code: [])
+    row = akshare_provider._fetch_one("000002", "2026-06-24")
+    assert row["close_price"] == 7.05
+    assert round(row["market_cap_billion"], 2) == 841.12
+    assert row["pe_percentile"] is None
+
+
+def test_announcement_classify_and_registry():
+    from app.adapters.announcement.akshare_announcement import _ann_id, _classify
+    from app.adapters.registry import get_announcement_adapter
+
+    assert _classify("关于募投项目扩产的公告") == "capacity_expansion"
+    assert _classify("2025年年度业绩预增公告") == "earnings"
+    assert _classify("控股股东减持股份计划") == "shareholding"
+    assert _classify("日常经营公告") == "general"
+
+    a = _ann_id("003031", "12345", "标题", "2026-06-25")
+    assert a == "cninfo_12345"
+    b = _ann_id("003031", None, "标题", "2026-06-25")
+    assert b.startswith("cninfo_003031_")
+
+    adapter = get_announcement_adapter("akshare")
+    assert adapter.name == "akshare"
+
+
+def test_tushare_financial_parsing(monkeypatch):
+    monkeypatch.setenv("TUSHARE_TOKEN", "test-token")
+    from app.adapters.financial import tushare_financial
+
+    monkeypatch.setattr(tushare_financial, "_load_pro", lambda: object())
+    monkeypatch.setattr(
+        tushare_financial,
+        "_latest_indicator",
+        lambda pro, ts_code: {
+            "end_date": "20251231",
+            "ann_date": "20260328",
+            "eps": "2.15",
+            "roe": "18.50",
+            "grossprofit_margin": "42.30",
+        },
+    )
+    monkeypatch.setattr(
+        tushare_financial,
+        "_income_for_period",
+        lambda pro, ts_code, end_date: {"revenue": "1.2e10", "n_income": "1.8e9"},
+    )
+    rows = tushare_financial.fetch_financial_rows(["003031.SZ"])
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["end_date"] == "20251231"
+    assert row["eps"] == 2.15
+    assert round(row["roe"], 4) == 0.185
+    assert round(row["gross_margin"], 4) == 0.423
+    assert row["revenue"] == 1.2e10
+
+
+def test_em_research_parsing(monkeypatch):
+    from app.adapters.research import em_research
+
+    class _FakeRow(dict):
+        def get(self, k, default=None):
+            return dict.get(self, k, default)
+
+    class _FakeDF:
+        empty = False
+
+        def iterrows(self):
+            yield 0, _FakeRow(
+                {"报告名称": "深度研报", "报告日期": "2026-06-20", "机构": "某券商", "东财评级": "买入"}
+            )
+
+    monkeypatch.setattr(em_research, "_load_akshare", lambda: object())
+    monkeypatch.setattr(em_research, "ensure_ipv4", lambda: None)
+    monkeypatch.setattr(em_research, "with_retry", lambda fn, label="": _FakeDF())
+    rows = em_research._fetch_one("003031", 20)
+    assert len(rows) == 1
+    assert rows[0]["title"] == "深度研报"
+    assert rows[0]["org_name"] == "某券商"
+    assert rows[0]["rating"] == "买入"
+    assert rows[0]["report_date"] == "2026-06-20"
+    assert rows[0]["report_key"].startswith("em_003031_")
+
+
+def test_akshare_metrics_adapter(monkeypatch):
+    from app.adapters.metrics import akshare_metrics
+
+    monkeypatch.setattr(
+        akshare_metrics, "_load_contracts", lambda: {"sector_test": {"mat_x": "LC0"}}
+    )
+    monkeypatch.setattr(
+        akshare_metrics,
+        "_fetch_contract",
+        lambda contract: {"trade_date": "2026-06-25", "price": 95000.0, "yoy": -0.32},
+    )
+    rows = akshare_metrics.fetch_material_metrics("sector_test")
+    assert len(rows) == 2
+    price_row = next(r for r in rows if r["metric_key"] == "material_price")
+    yoy_row = next(r for r in rows if r["metric_key"] == "price_yoy")
+    assert price_row["value"] == 95000.0
+    assert price_row["product_id"] == "mat_x"
+    assert price_row["period"] == "2026-06-25"
+    assert price_row["unit"] == "CNY"
+    assert yoy_row["value"] == -0.32
+
+    assert akshare_metrics.fetch_material_metrics("sector_unmapped") == []
+
+
+def test_akshare_metrics_yoy():
+    from datetime import datetime
+
+    from app.adapters.metrics import akshare_metrics
+
+    series = [
+        (datetime(2025, 6, 20), 100.0),
+        (datetime(2025, 12, 20), 120.0),
+        (datetime(2026, 6, 25), 150.0),
+    ]
+    assert akshare_metrics._yoy(series) == 0.5
+    assert akshare_metrics._yoy([(datetime(2026, 6, 25), 150.0)]) is None
+
+
+def test_dashboard_material_metrics_bucket(monkeypatch):
+    from app.services import metrics as metrics_service
+
+    monkeypatch.setattr(
+        metrics_service,
+        "list_sector_metrics",
+        lambda sector_id: [
+            {
+                "sector_id": sector_id,
+                "product_id": None,
+                "product_name": None,
+                "metric_key": "sector_demand_growth",
+                "metric_label": "需求增速",
+                "period": "2026Q1",
+                "value": 0.35,
+                "unit": "ratio",
+                "data_source": "ods",
+            },
+            {
+                "sector_id": sector_id,
+                "product_id": "mat_lithium_carbonate",
+                "product_name": None,
+                "metric_key": "material_price",
+                "metric_label": "材料现价",
+                "period": "2026-06-25",
+                "value": 95000.0,
+                "unit": "CNY",
+                "data_source": "akshare",
+            },
+            {
+                "sector_id": sector_id,
+                "product_id": "mat_lithium_carbonate",
+                "product_name": None,
+                "metric_key": "price_yoy",
+                "metric_label": "价格同比",
+                "period": "2026-06-25",
+                "value": -0.32,
+                "unit": "ratio",
+                "data_source": "akshare",
+            },
+        ],
+    )
+    summary = metrics_service.dashboard_summary("sector_ai_compute")
+    assert "material_metrics" in summary
+    assert len(summary["material_metrics"]) == 1
+    mat = summary["material_metrics"][0]
+    assert mat["material_key"] == "mat_lithium_carbonate"
+    assert mat["price"] == 95000.0
+    assert mat["price_yoy"] == -0.32
+    assert mat["unit"] == "CNY"
+
+
+def test_candidate_pool_overlay_seed_fallback(monkeypatch):
+    from app.services import candidate_pool
+
+    items = [{"stock_code": "AI0001", "market_cap_billion": 2000}]
+    monkeypatch.setattr(candidate_pool, "build_buy_side_pool", lambda store, sid: items)
+    monkeypatch.setattr(candidate_pool, "build_serenity_pool", lambda store, sid: [])
+    candidate_pool._apply_ods_overlay(items)
+    assert items[0]["data_origin"] == "seed"
+    assert items[0]["market_cap_billion"] == 2000
+
+
+def test_candidate_pool_overlay_from_ods(monkeypatch):
+    from app.services import candidate_pool, ods_service
+
+    monkeypatch.setattr(
+        ods_service,
+        "latest_market_overlay",
+        lambda codes: {"AI0001": {"market_cap_billion": 1800.0, "pe_percentile": 0.6, "close_price": 12.3, "trade_date": "2026-06-25", "source": "tushare"}},
+    )
+    monkeypatch.setattr(
+        ods_service,
+        "latest_financial_overlay",
+        lambda codes: {"AI0001": {"gross_margin": 0.41, "roe": 0.18, "end_date": "20251231", "source": "tushare"}},
+    )
+    items = [{"stock_code": "AI0001", "market_cap_billion": 2000}]
+    candidate_pool._apply_ods_overlay(items)
+    assert items[0]["data_origin"] == "ods"
+    assert items[0]["market_cap_billion"] == 1800.0
+    assert items[0]["pe_percentile"] == 0.6
+    assert items[0]["gross_margin"] == 0.41
+    assert items[0]["market_data_date"] == "2026-06-25"
+
+
+def test_report_ingest_bridge(monkeypatch):
+    from app.services import report_ingest_bridge
+
+    def fake_reports(stock_code=None, limit=50):
+        if stock_code == "AI0002":
+            return [{"title": "光模块产能紧张涨价", "org_name": "某券商", "rating": "买入"}]
+        return []
+
+    monkeypatch.setattr(report_ingest_bridge, "list_ods_external_reports", fake_reports)
+    result = report_ingest_bridge.ingest_external_reports_to_draft("sector_ai_compute")
+    assert result["status"] == "ok"
+    assert result["report_lines"] >= 1
+    assert result["bottleneck_hints"] >= 1
+    assert result["draft_id"].startswith("draft_")
+
+    monkeypatch.setattr(
+        report_ingest_bridge, "list_ods_external_reports", lambda stock_code=None, limit=50: []
+    )
+    empty = report_ingest_bridge.ingest_external_reports_to_draft("sector_ai_compute")
+    assert empty["status"] == "empty"
+    assert empty["report_lines"] == 0
 
 
 def test_knowledge_ingest_agent():

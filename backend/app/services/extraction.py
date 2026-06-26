@@ -55,7 +55,7 @@ def _extract_upstream_relations(text: str, sector_id: str) -> list[dict]:
 def _extract_bottleneck_hints(text: str, sector_id: str) -> list[dict]:
     store = get_store()
     hints = []
-    keywords = ["瓶颈", "供不应求", "扩产周期", "产能紧张", "认证壁垒"]
+    keywords = ["瓶颈", "供不应求", "扩产周期", "扩产", "产能紧张", "产能", "认证壁垒", "涨价", "缺货"]
     if not any(k in text for k in keywords):
         return hints
     for p in store.list_products(sector_id):

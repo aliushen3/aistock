@@ -179,6 +179,32 @@ def _gate_fields(store: InMemoryGraphStore, sector_id: str, mode: str, code: str
     }
 
 
+def _apply_ods_overlay(items: list[dict]) -> None:
+    """用 ODS 真实行情/财报覆盖候选项的种子字段；缺数据则保留种子并标注来源。"""
+    from app.services import ods_service
+
+    codes = [it["stock_code"] for it in items]
+    market = ods_service.latest_market_overlay(codes)
+    financial = ods_service.latest_financial_overlay(codes)
+    for it in items:
+        code = it["stock_code"]
+        m = market.get(code)
+        f = financial.get(code)
+        if m:
+            for key in ("market_cap_billion", "pe_percentile", "close_price"):
+                if m.get(key) is not None:
+                    it[key] = m[key]
+            it["market_data_date"] = m.get("trade_date")
+            it["market_data_source"] = m.get("source")
+        if f:
+            for key in ("gross_margin", "roe"):
+                if f.get(key) is not None:
+                    it[key] = f[key]
+            it["financial_data_date"] = f.get("end_date")
+            it["financial_data_source"] = f.get("source")
+        it["data_origin"] = "ods" if (m or f) else "seed"
+
+
 def build_pool(store: InMemoryGraphStore, sector_id: str, mode: str) -> list[dict]:
     if mode == "buy_side":
         items = build_buy_side_pool(store, sector_id)
@@ -186,6 +212,7 @@ def build_pool(store: InMemoryGraphStore, sector_id: str, mode: str) -> list[dic
         items = build_serenity_pool(store, sector_id)
     else:
         items = build_fusion_pool(store, sector_id)
+    _apply_ods_overlay(items)
     for it in items:
         it["status"] = get_state(sector_id, mode, it["stock_code"])
         it.update(_gate_fields(store, sector_id, mode, it["stock_code"]))
