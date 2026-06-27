@@ -45,6 +45,16 @@ AGENT_MATRIX: dict[str, dict[str, Any]] = {
         "proposal": "SectorRecommendation",
         "action": "ConfirmSectorBeta",
     },
+    "sector_bootstrap": {
+        "display_name": "SectorBootstrap",
+        "agent_class": "B",
+        "runtime": "pipeline",
+        "llm_required": False,
+        "llm_assisted_default": False,
+        "invest_step": "Step1' 赛道冷启动",
+        "proposal": "ConstituentSync+KnowledgeDraft",
+        "action": None,
+    },
     "bottleneck_scout": {
         "display_name": "BottleneckScoutAgent",
         "agent_class": "B",

@@ -60,7 +60,7 @@ def tool_rule_extract_preview(sector_id: str, content: str) -> dict:
 
 def tool_llm_extract_preview(sector_id: str, content: str) -> dict:
     result = extraction_service.extract_with_llm(content, sector_id)
-    return result or {"relations": [], "bottleneck_hints": [], "extractor": "llm_unavailable"}
+    return result or {"relations": [], "bottleneck_hints": [], "new_products": [], "extractor": "llm_unavailable"}
 
 
 def execute_tool(name: str, action_input: dict | None = None) -> Any:

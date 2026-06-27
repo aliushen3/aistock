@@ -1,6 +1,7 @@
 import os
 
 os.environ.setdefault("AISTOCK_SQLITE", "1")
+os.environ.setdefault("LOAD_DEMO_SEED", "true")
 
 from app.db import models  # noqa: F401,E402
 from app.db.base import Base  # noqa: E402

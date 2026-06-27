@@ -12,7 +12,8 @@ export default function SectorSelect() {
         size="small"
         value={sectorId || undefined}
         style={{ width: 180 }}
-        placeholder="选择赛道"
+        placeholder={sectors.length ? "选择赛道" : "暂无赛道"}
+        notFoundContent="请先采纳赛道推荐"
         options={sectors.map((s) => ({ value: s.id, label: s.name }))}
         onChange={setSectorId}
       />

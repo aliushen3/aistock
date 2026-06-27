@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.celery_app import celery_app
 from app.services.graph_store import get_store
+from app.services.graph_ingest import sync_constituents
 from app.services.ods_service import (
     sync_announcements,
     sync_external_reports,
@@ -72,9 +73,18 @@ def ingest_reports_to_draft_task(self, sector_id: str = "sector_ai_compute"):
     return ingest_external_reports_to_draft(sector_id)
 
 
+@celery_app.task(bind=True, name="data.sync_constituents")
+def sync_constituents_task(self, sector_id: str = "sector_ai_compute", adapter: str | None = None):
+    self.update_state(state="PROGRESS", meta={"step": "fetching_constituents", "sector_id": sector_id})
+    return sync_constituents(sector_id, adapter_name=adapter)
+
+
 @celery_app.task(name="data.sync_sector_bundle")
 def sync_sector_bundle_task(sector_id: str = "sector_ai_compute"):
-    """指标 + 行情 + 公告 + 财报 + 研报一次性同步。"""
+    """成分股 + 指标 + 行情 + 公告 + 财报 + 研报一次性同步。"""
+    store = get_store()
+    codes = list(store.companies.keys())
+    con = sync_constituents(sector_id)
     store = get_store()
     codes = list(store.companies.keys())
     m = sync_industry_metrics(sector_id)
@@ -82,4 +92,11 @@ def sync_sector_bundle_task(sector_id: str = "sector_ai_compute"):
     ann = sync_announcements(codes)
     fin = sync_financials(codes)
     rep = sync_external_reports(codes)
-    return {"metrics": m, "market": mk, "announcements": ann, "financials": fin, "external_reports": rep}
+    return {
+        "constituents": con,
+        "metrics": m,
+        "market": mk,
+        "announcements": ann,
+        "financials": fin,
+        "external_reports": rep,
+    }

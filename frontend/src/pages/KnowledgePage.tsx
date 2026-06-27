@@ -3,9 +3,11 @@ import {
   App as AntApp,
   Button,
   Card,
+  Descriptions,
   Form,
   Input,
   List,
+  Modal,
   Space,
   Switch,
   Tag,
@@ -22,7 +24,9 @@ import {
   ingestSectorReports,
   syncSectorReports,
   uploadResearchReport,
+  validateKnowledgeDraft,
   type KnowledgeDraft,
+  type KnowledgeDraftValidation,
   type UploadedDocument,
 } from "../lib/api";
 import { useSector } from "../lib/sectorContext";
@@ -30,7 +34,7 @@ import { useSector } from "../lib/sectorContext";
 const SAMPLE = "磷化铟衬底是 EML光芯片 的上游，产能紧张扩产周期长达24个月，属于瓶颈环节。";
 
 export default function KnowledgePage() {
-  const { message } = AntApp.useApp();
+  const { message, modal } = AntApp.useApp();
   const { sectorId } = useSector();
   const [form] = Form.useForm();
   const [drafts, setDrafts] = useState<KnowledgeDraft[]>([]);
@@ -40,6 +44,10 @@ export default function KnowledgePage() {
   const [extractOnUpload, setExtractOnUpload] = useState(true);
   const [uploadRef, setUploadRef] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
+  const [detailDraft, setDetailDraft] = useState<KnowledgeDraft | null>(null);
+  const [validation, setValidation] = useState<KnowledgeDraftValidation | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const load = () => {
     if (!sectorId) return;
@@ -102,10 +110,62 @@ export default function KnowledgePage() {
     return false;
   };
 
-  const confirm = async (draftId: string) => {
-    await confirmKnowledgeDraft(draftId);
-    message.success("草案已校准入库");
-    load();
+  const openDetail = (draft: KnowledgeDraft) => {
+    setDetailDraft(draft);
+    setValidation(null);
+  };
+
+  const runValidate = async (draftId: string) => {
+    setValidating(true);
+    try {
+      const result = await validateKnowledgeDraft(draftId);
+      setValidation(result);
+      if (result.can_confirm_all) {
+        message.success("校验通过，可校准入库");
+      } else {
+        message.warning(`有 ${result.blocked_count} 条关系被 F5 规则阻断，需 force 确认或补充硬源`);
+      }
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail ?? "校验失败");
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const doConfirm = async (draftId: string, force: boolean) => {
+    setConfirming(true);
+    try {
+      await confirmKnowledgeDraft(draftId, force);
+      message.success(force ? "已强制校准入库" : "草案已校准入库");
+      setDetailDraft(null);
+      setValidation(null);
+      load();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail ?? "入库失败");
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const confirm = (draftId: string) => {
+    if (validation?.draft_id === draftId && !validation.can_confirm_all) {
+      modal.confirm({
+        title: "强制校准入库？",
+        content: (
+          <Typography.Paragraph>
+            有 {validation.blocked_count} 条关系未通过多源交叉校验（单一研报来源）。
+            强制确认将跳过 F5 阻断规则，请确认已人工复核。
+          </Typography.Paragraph>
+        ),
+        okText: "强制入库",
+        okButtonProps: { danger: true },
+        onOk: () => doConfirm(draftId, true),
+      });
+      return;
+    }
+    doConfirm(draftId, false);
   };
 
   const syncReports = async () => {
@@ -143,6 +203,137 @@ export default function KnowledgePage() {
     } finally {
       setReportLoading(false);
     }
+  };
+
+  const renderDraftDetail = () => {
+    if (!detailDraft) return null;
+    const ext = detailDraft.extracted;
+    const rels = validation?.relations ?? ext.relations ?? [];
+    const products = validation?.new_products ?? ext.new_products ?? [];
+
+    return (
+      <Modal
+        open
+        title={`草案 ${detailDraft.draft_id}`}
+        width={720}
+        onCancel={() => {
+          setDetailDraft(null);
+          setValidation(null);
+        }}
+        footer={
+          detailDraft.status === "draft"
+            ? [
+                <Button key="v" loading={validating} onClick={() => runValidate(detailDraft.draft_id)}>
+                  校验
+                </Button>,
+                <Button
+                  key="c"
+                  type="primary"
+                  loading={confirming}
+                  onClick={() => confirm(detailDraft.draft_id)}
+                >
+                  校准入库
+                </Button>,
+              ]
+            : [<Button key="close" onClick={() => setDetailDraft(null)}>关闭</Button>]
+        }
+      >
+        <Descriptions size="small" column={1} bordered style={{ marginBottom: 16 }}>
+          <Descriptions.Item label="来源">{detailDraft.source_ref}</Descriptions.Item>
+          <Descriptions.Item label="状态">
+            <Tag color={detailDraft.status === "confirmed" ? "green" : "blue"}>{detailDraft.status}</Tag>
+          </Descriptions.Item>
+          {validation && (
+            <Descriptions.Item label="校验结果">
+              {validation.can_confirm_all ? (
+                <Tag color="green">全部关系可确认</Tag>
+              ) : (
+                <Tag color="orange">阻断 {validation.blocked_count} 条关系</Tag>
+              )}
+              {validation.note && (
+                <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+                  {validation.note}
+                </Typography.Text>
+              )}
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+
+        {products.length > 0 && (
+          <>
+            <Typography.Title level={5}>新产品节点 ({products.length})</Typography.Title>
+            <List
+              size="small"
+              dataSource={products}
+              renderItem={(p) => (
+                <List.Item>
+                  <Space wrap>
+                    <Tag color="purple">{p.product_id}</Tag>
+                    <span>{p.name}</span>
+                    {p.layer && <Tag>{p.layer}</Tag>}
+                    {p.already_exists && <Tag color="default">已存在</Tag>}
+                    {p.is_new && !p.already_exists && <Tag color="cyan">待创建</Tag>}
+                  </Space>
+                </List.Item>
+              )}
+              style={{ marginBottom: 16 }}
+            />
+          </>
+        )}
+
+        {(rels.length > 0 || (ext.relations?.length ?? 0) > 0) && (
+          <>
+            <Typography.Title level={5}>产业链关系</Typography.Title>
+            <List
+              size="small"
+              dataSource={rels}
+              renderItem={(rel) => (
+                <List.Item>
+                  <Space direction="vertical" size={0}>
+                    <span>
+                      {rel.source_name ?? rel.source_id} → {rel.target_name ?? rel.target_id}
+                    </span>
+                    {rel.validation && (
+                      <Space size={4}>
+                        {rel.validation.can_confirm ? (
+                          <Tag color="green">可确认</Tag>
+                        ) : (
+                          <Tag color="red">阻断{rel.validation.report_only ? "（仅研报）" : ""}</Tag>
+                        )}
+                      </Space>
+                    )}
+                  </Space>
+                </List.Item>
+              )}
+              style={{ marginBottom: 16 }}
+            />
+          </>
+        )}
+
+        {(ext.bottleneck_hints?.length ?? 0) > 0 && (
+          <>
+            <Typography.Title level={5}>瓶颈提示</Typography.Title>
+            <List
+              size="small"
+              dataSource={ext.bottleneck_hints ?? []}
+              renderItem={(h) => (
+                <List.Item>
+                  {h.product_name ?? h.product_id}
+                  {h.confidence && <Tag style={{ marginLeft: 8 }}>{h.confidence}</Tag>}
+                </List.Item>
+              )}
+            />
+          </>
+        )}
+
+        {ext.evidence_excerpt && (
+          <>
+            <Typography.Title level={5}>证据摘录</Typography.Title>
+            <Typography.Paragraph type="secondary">{ext.evidence_excerpt}</Typography.Paragraph>
+          </>
+        )}
+      </Modal>
+    );
   };
 
   return (
@@ -242,7 +433,10 @@ export default function KnowledgePage() {
             <List.Item
               actions={
                 d.status === "draft"
-                  ? [<a key="c" onClick={() => confirm(d.draft_id)}>校准入库</a>]
+                  ? [
+                      <a key="d" onClick={() => openDetail(d)}>详情</a>,
+                      <a key="c" onClick={() => openDetail(d)}>校准入库</a>,
+                    ]
                   : [<Tag key="ok" color="green">已确认</Tag>]
               }
             >
@@ -255,7 +449,8 @@ export default function KnowledgePage() {
                 }
                 description={
                   <Typography.Text type="secondary">
-                    关系 {d.extracted.relations?.length ?? 0} 条 · 瓶颈提示{" "}
+                    新产品 {(d.extracted.new_products?.length ?? 0)} 个 · 关系{" "}
+                    {d.extracted.relations?.length ?? 0} 条 · 瓶颈提示{" "}
                     {d.extracted.bottleneck_hints?.length ?? 0} 条
                   </Typography.Text>
                 }
@@ -264,6 +459,8 @@ export default function KnowledgePage() {
           )}
         />
       </Card>
+
+      {renderDraftDetail()}
     </Space>
   );
 }

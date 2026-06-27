@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.adapters.registry import list_adapters
 from app.services.graph_store import get_store
+from app.services.graph_ingest import ontology_company_stats, sync_constituents
 from app.services.ods_service import (
     ods_stats,
     sync_announcements,
@@ -19,6 +20,7 @@ def get_data_adapters():
     from app.config import (
         DATA_ADAPTER,
         DATA_ADAPTER_ANNOUNCEMENT,
+        DATA_ADAPTER_CONSTITUENT,
         DATA_ADAPTER_FINANCIAL,
         DATA_ADAPTER_MARKET,
         DATA_ADAPTER_METRICS,
@@ -34,6 +36,7 @@ def get_data_adapters():
             "metrics": DATA_ADAPTER_METRICS,
             "financial": DATA_ADAPTER_FINANCIAL,
             "research": DATA_ADAPTER_RESEARCH,
+            "constituent": DATA_ADAPTER_CONSTITUENT,
             "legacy": DATA_ADAPTER,
         },
     }
@@ -41,7 +44,19 @@ def get_data_adapters():
 
 @router.get("/ods/stats")
 def get_ods_stats():
-    return ods_stats()
+    stats = ods_stats()
+    stats["ontology_companies"] = ontology_company_stats()
+    return stats
+
+
+@router.post("/sync/constituents/{sector_id}")
+def trigger_constituents_sync(sector_id: str, adapter: str | None = None):
+    if get_store().get_sector(sector_id) is None:
+        raise HTTPException(status_code=404, detail="赛道不存在")
+    try:
+        return sync_constituents(sector_id, adapter_name=adapter)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/sync/metrics/{sector_id}")

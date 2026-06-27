@@ -15,10 +15,12 @@ from app.agents.report_graphrag_agent import run_report_graphrag_agent
 from app.agents.sector_recommend_agent import run_sector_recommend_agent
 from app.agents.serenity_path_agent import run_serenity_path_agent
 from app.services.graph_store import get_store
+from app.services.sector_bootstrap import bootstrap_sector
 from app.services.workflow import WorkflowGateError, is_sector_confirmed, require_sector_confirmed
 
 DEFAULT_STEPS = [
     "sector_recommend",
+    "sector_bootstrap",
     "knowledge_ingest",
     "bottleneck_scout",
     "serenity_path",
@@ -43,6 +45,14 @@ def _step_sector_recommend(ctx: dict) -> dict:
         query=ctx.get("query"),
         max_recommendations=ctx.get("max_recommendations", 3),
         operator=ctx.get("operator", "analyst"),
+    )
+
+
+def _step_sector_bootstrap(ctx: dict) -> dict:
+    return bootstrap_sector(
+        ctx["sector_id"],
+        sync_constituents=ctx.get("bootstrap_constituents", True),
+        ingest_reports=ctx.get("bootstrap_reports", True),
     )
 
 
@@ -112,6 +122,7 @@ def _step_monitor_watch(ctx: dict) -> dict:
 
 STEP_HANDLERS: dict[str, Callable[[dict], dict]] = {
     "sector_recommend": _step_sector_recommend,
+    "sector_bootstrap": _step_sector_bootstrap,
     "knowledge_ingest": _step_knowledge_ingest,
     "bottleneck_scout": _step_bottleneck_scout,
     "serenity_path": _step_serenity_path,
@@ -133,12 +144,13 @@ def run_invest_research_orchestrator(
     operator: str = "analyst",
     stop_on_gate: bool = False,
 ) -> dict:
+    step_names = steps or DEFAULT_STEPS
     store = get_store()
-    if store.get_sector(sector_id) is None:
+    needs_sector = any(name != "sector_recommend" for name in step_names)
+    if needs_sector and store.get_sector(sector_id) is None:
         raise ValueError(f"赛道不存在: {sector_id}")
 
     pipeline_id = f"pipe_{uuid.uuid4().hex[:12]}"
-    step_names = steps or DEFAULT_STEPS
     ctx: dict[str, Any] = {
         "sector_id": sector_id,
         "focus": focus,

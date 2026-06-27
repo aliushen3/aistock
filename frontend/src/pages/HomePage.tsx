@@ -167,6 +167,21 @@ export default function HomePage() {
         发现赛道 → 研究员确认景气 → 图谱研判 → 候选入池 → 报告审核。机器辅助排序，决策由研究员把关。
       </Typography.Paragraph>
 
+      {sectors.length === 0 && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="空图谱冷启动"
+          description={
+            <>
+              当前无已入库赛道（生产环境默认不灌 demo 种子）。请：① 在下方运行「赛道扫描」→ 采纳推荐；
+              ② 系统自动同步成分股并抽取研报草案；③ 在「知识抽取」确认拓扑后，再确认赛道景气。
+            </>
+          }
+        />
+      )}
+
       <Alert
         type="warning"
         showIcon

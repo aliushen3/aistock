@@ -117,7 +117,33 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
                     renderItem={(rec) => (
                       <List.Item
                         actions={[
-                          <a key="a" onClick={() => adoptSectorRecommendation(rec.rec_id).then(loadProposals)}>
+                          <a
+                            key="a"
+                            onClick={() =>
+                              adoptSectorRecommendation(rec.rec_id).then((r) => {
+                                loadProposals();
+                                onReload?.();
+                                const boot = r.bootstrap as {
+                                  constituents?: { status?: string; reason?: string };
+                                  report_draft?: { status?: string; draft_id?: string };
+                                } | null;
+                                if (!boot) {
+                                  message.success("已采纳赛道推荐");
+                                  return;
+                                }
+                                if (boot.constituents?.status === "skipped") {
+                                  message.warning(
+                                    `已采纳；成分股同步跳过：${boot.constituents.reason ?? "未配置"}`
+                                  );
+                                } else {
+                                  message.success("已采纳并触发赛道冷启动");
+                                }
+                                if (boot.report_draft?.draft_id) {
+                                  message.info(`已生成知识草案 ${boot.report_draft.draft_id}`);
+                                }
+                              })
+                            }
+                          >
                             采纳
                           </a>,
                           <a key="d" onClick={() => dismissSectorRecommendation(rec.rec_id).then(loadProposals)}>

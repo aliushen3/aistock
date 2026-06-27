@@ -6,10 +6,15 @@ from app.agents.sector_recommend_agent import make_sector_id_for_adopt
 from app.ontology import pg_store
 from app.ontology.property_overlays import set_sector_property
 from app.services.graph_store import get_store, invalidate_store_cache, set_store_from_db
+from app.services.sector_bootstrap import bootstrap_sector
 from app.services.sector_recommendations import get_recommendation, update_status
 
 
-def adopt_recommendation(rec_id: str, operator: str = "analyst") -> dict:
+def adopt_recommendation(
+    rec_id: str,
+    operator: str = "analyst",
+    auto_bootstrap: bool = True,
+) -> dict:
     rec = get_recommendation(rec_id)
     if rec is None:
         raise ValueError(f"推荐不存在: {rec_id}")
@@ -44,6 +49,9 @@ def adopt_recommendation(rec_id: str, operator: str = "analyst") -> dict:
 
     update_status(rec_id, "adopted")
     sector = get_store().get_sector(sector_id)
+    bootstrap_result = None
+    if auto_bootstrap:
+        bootstrap_result = bootstrap_sector(sector_id)
     return {
         "rec_id": rec_id,
         "sector_id": sector_id,
@@ -51,6 +59,7 @@ def adopt_recommendation(rec_id: str, operator: str = "analyst") -> dict:
         "created": created,
         "status": sector.get("status") if sector else "beta_candidate",
         "message": "已采纳为 beta_candidate，请研究员执行 ConfirmSectorBeta",
+        "bootstrap": bootstrap_result,
         "operator": operator,
     }
 

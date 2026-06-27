@@ -226,6 +226,12 @@ def get_store() -> HybridGraphStore:
 
         seed = build_seed_dict_from_db()
     else:
-        with open(SEED_PATH, encoding="utf-8") as f:
-            seed = json.load(f)
+        from app.config import LOAD_DEMO_SEED
+        from app.ontology.seed_loader import EMPTY_SEED_DICT
+
+        if LOAD_DEMO_SEED:
+            with open(SEED_PATH, encoding="utf-8") as f:
+                seed = json.load(f)
+        else:
+            seed = EMPTY_SEED_DICT
     return HybridGraphStore(seed)

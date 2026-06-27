@@ -7,6 +7,7 @@ import {
   getOdsStats,
   ingestSectorReports,
   syncSectorAnnouncements,
+  syncSectorConstituents,
   syncSectorFinancials,
   syncSectorMarket,
   syncSectorMetrics,
@@ -19,6 +20,9 @@ interface SyncResult {
   adapter?: string;
   count?: number;
   status?: string;
+  companies_upserted?: number;
+  demo_removed?: number;
+  links_created?: number;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -27,6 +31,7 @@ const KIND_LABEL: Record<string, string> = {
   metrics: "材料行情",
   financial: "财报",
   research: "研报",
+  constituent: "成分股",
 };
 
 export default function DataOpsPage() {
@@ -57,9 +62,14 @@ export default function DataOpsPage() {
       const r = await fn();
       if (r.status === "skipped") {
         message.info(`${label}：未启用 ODS，已跳过（拉取 ${r.count ?? 0} 条）`);
+      } else if (r.companies_upserted != null) {
+        message.success(
+          `${label}完成（写入 ${r.companies_upserted} 家，移除演示 ${r.demo_removed ?? 0} 家，产品链接 ${r.links_created ?? 0} 条）`
+        );
       } else {
         message.success(`${label}完成（来源 ${r.adapter ?? "-"}，写入 ${r.count ?? 0} 条）`);
       }
+      load();
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };
       message.error(err.response?.data?.detail || `${label}失败`);
@@ -70,6 +80,7 @@ export default function DataOpsPage() {
   };
 
   const syncActions: { key: string; label: string; fn: () => Promise<SyncResult> }[] = [
+    { key: "constituents", label: "同步成分股", fn: () => syncSectorConstituents(sectorId) },
     { key: "market", label: "同步行情", fn: () => syncSectorMarket(sectorId) },
     { key: "announcements", label: "同步公告", fn: () => syncSectorAnnouncements(sectorId) },
     { key: "financials", label: "同步财报", fn: () => syncSectorFinancials(sectorId) },
@@ -120,6 +131,19 @@ export default function DataOpsPage() {
           <Typography.Text type="secondary">
             未启用 ODS（ODS_ENABLED=false），采集结果不落库。配置数据库并启用后此处显示各表条数。
           </Typography.Text>
+        )}
+        {odsStats?.ontology_companies?.enabled && (
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col xs={8}>
+              <Statistic title="图谱公司总数" value={odsStats.ontology_companies.total ?? 0} />
+            </Col>
+            <Col xs={8}>
+              <Statistic title="真实 A 股代码" value={odsStats.ontology_companies.real_codes ?? 0} />
+            </Col>
+            <Col xs={8}>
+              <Statistic title="演示代码" value={odsStats.ontology_companies.demo_codes ?? 0} />
+            </Col>
+          </Row>
         )}
       </Card>
 

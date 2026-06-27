@@ -66,7 +66,26 @@ action_types:
         required: true
       - name: evidence_refs
         type: array
-    side_effects: [audit_log, invalidate_function]
+    side_effects: [audit_log, invalidate_function, sync_neo4j]
+
+  CreateProduct:
+    display_name: 新建产品节点
+    target: Sector
+    permissions: [researcher]
+    parameters:
+      - name: product_id
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: true
+      - name: layer
+        type: string
+      - name: reason
+        type: string
+        required: true
+        min_length: 5
+    side_effects: [audit_log, invalidate_function, sync_neo4j]
 
   ApprovePoolEntry:
     display_name: 确认入池

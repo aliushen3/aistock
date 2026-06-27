@@ -8,6 +8,7 @@ from typing import Any
 
 from app.agents.knowledge_agent_tools import TOOL_SPECS, execute_tool, tool_rule_extract_preview
 from app.services import extraction as extraction_service
+from app.services import extraction as extraction_service
 from app.services.graph_store import get_store
 from app.services.llm_client import chat_completion, is_llm_enabled, parse_json_response
 
@@ -24,7 +25,8 @@ REACT_SYSTEM = """你是 AiStock 知识抽取智能体（ReAct 模式）。
 final_answer 格式：
 {
   "agent_summary": "一句话总结",
-  "extracted": {
+    "extracted": {
+    "new_products": [{"product_name":"","layer":"material|mid|terminal|consumable","confidence":"medium"}],
     "relations": [{"type":"UPSTREAM_OF","source_name":"","target_name":"","confidence":"medium"}],
     "bottleneck_hints": [{"product_name":"","confidence":"low"}],
     "evidence_excerpt": ""
@@ -38,49 +40,14 @@ FINAL_SYSTEM = """你是知识抽取智能体。基于工具结果输出 final_a
 MAX_REACT_STEPS = 4
 
 
-def _normalize_extracted(raw: dict, sector_id: str) -> dict:
-    """将 LLM 输出的名称对齐为 product_id。"""
-    store = get_store()
-    name_to_id = {p["name"]: p["id"] for p in store.list_products(sector_id)}
-    relations = []
-    for rel in raw.get("relations", []):
-        if rel.get("source_id") and rel.get("target_id"):
-            relations.append(rel)
-            continue
-        up_id = name_to_id.get(rel.get("source_name", ""))
-        down_id = name_to_id.get(rel.get("target_name", ""))
-        if up_id and down_id:
-            relations.append(
-                {
-                    "type": "UPSTREAM_OF",
-                    "source_id": up_id,
-                    "source_name": rel.get("source_name"),
-                    "target_id": down_id,
-                    "target_name": rel.get("target_name"),
-                    "confidence": rel.get("confidence", "medium"),
-                }
-            )
-    hints = []
-    for hint in raw.get("bottleneck_hints", []):
-        if hint.get("product_id"):
-            hints.append(hint)
-            continue
-        pid = name_to_id.get(hint.get("product_name", ""))
-        if pid:
-            hints.append(
-                {
-                    "type": "bottleneck_hint",
-                    "product_id": pid,
-                    "product_name": hint.get("product_name"),
-                    "confidence": hint.get("confidence", "low"),
-                }
-            )
-    return {
-        "relations": relations,
-        "bottleneck_hints": hints,
-        "evidence_excerpt": raw.get("evidence_excerpt", ""),
-        "extractor": raw.get("extractor", "agent_v1"),
-    }
+def _normalize_extracted(raw: dict, sector_id: str, source_ref: str = "") -> dict:
+    """将 LLM 输出的名称对齐为 product_id，并为新环节生成 new_products。"""
+    return extraction_service.normalize_extraction(
+        raw,
+        sector_id,
+        source_type="llm_extract",
+        source_ref=source_ref,
+    )
 
 
 def _rule_extract(sector_id: str, content: str, source_ref: str) -> dict:
@@ -114,7 +81,7 @@ def _react_loop(sector_id: str, content: str, source_ref: str) -> tuple[dict | N
 
         if parsed.get("final_answer"):
             answer = parsed["final_answer"]
-            extracted = _normalize_extracted(answer.get("extracted", {}), sector_id)
+            extracted = _normalize_extracted(answer.get("extracted", {}), sector_id, source_ref)
             return (
                 {
                     "agent_summary": answer.get("agent_summary", "知识抽取完成"),
@@ -148,7 +115,7 @@ def _react_loop(sector_id: str, content: str, source_ref: str) -> tuple[dict | N
         return None, tool_results
     parsed = parse_json_response(raw)
     if parsed and parsed.get("extracted"):
-        extracted = _normalize_extracted(parsed["extracted"], sector_id)
+        extracted = _normalize_extracted(parsed["extracted"], sector_id, source_ref)
         return (
             {
                 "agent_summary": parsed.get("agent_summary", "知识抽取完成"),

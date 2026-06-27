@@ -273,9 +273,20 @@ export interface OdsStats {
   announcements?: number;
   financials?: number;
   external_reports?: number;
+  ontology_companies?: {
+    enabled: boolean;
+    total?: number;
+    real_codes?: number;
+    demo_codes?: number;
+  };
 }
 
 export const getOdsStats = () => api.get<OdsStats>("/data/ods/stats").then((r) => r.data);
+
+export const syncSectorConstituents = (sectorId: string, adapter?: string) =>
+  api
+    .post(`/data/sync/constituents/${sectorId}`, null, { params: adapter ? { adapter } : undefined })
+    .then((r) => r.data);
 
 export const syncSectorMetrics = (sectorId: string, adapter?: string) =>
   api.post(`/data/sync/metrics/${sectorId}`, null, { params: adapter ? { adapter } : undefined }).then((r) => r.data);
@@ -369,8 +380,18 @@ export const getSectorRecommendations = (status?: string) =>
     .get<{ items: SectorRecommendation[] }>("/agents/sector-recommendations", { params: { status } })
     .then((r) => r.data.items);
 
-export const adoptSectorRecommendation = (recId: string) =>
-  api.post(`/agents/sector-recommendations/${recId}/adopt`).then((r) => r.data);
+export const adoptSectorRecommendation = (recId: string, autoBootstrap = true) =>
+  api
+    .post(`/agents/sector-recommendations/${recId}/adopt`, null, {
+      params: { auto_bootstrap: autoBootstrap },
+    })
+    .then((r) => r.data);
+
+export const runSectorBootstrap = (body: {
+  sector_id: string;
+  sync_constituents?: boolean;
+  ingest_reports?: boolean;
+}) => api.post("/agents/sector-bootstrap/run", body).then((r) => r.data);
 
 export const dismissSectorRecommendation = (recId: string) =>
   api.post(`/agents/sector-recommendations/${recId}/dismiss`).then((r) => r.data);
@@ -488,14 +509,48 @@ export interface DiagnosisItem {
 export const getDiagnosis = (sectorId: string) =>
   api.get<{ items: DiagnosisItem[]; count: number }>(`/diagnosis/sector/${sectorId}`).then((r) => r.data);
 
+export interface KnowledgeNewProduct {
+  product_id: string;
+  name: string;
+  layer?: string;
+  confidence?: string;
+  is_new?: boolean;
+  already_exists?: boolean;
+}
+
+export interface KnowledgeRelation {
+  source_id?: string;
+  source_name?: string;
+  target_id?: string;
+  target_name?: string;
+  confidence?: string;
+  validation?: {
+    can_confirm: boolean;
+    report_only?: boolean;
+    hard_source_count?: number;
+  };
+}
+
+export interface KnowledgeDraftValidation {
+  draft_id: string;
+  can_confirm_all: boolean;
+  blocked_count: number;
+  new_product_count: number;
+  note?: string;
+  relations: KnowledgeRelation[];
+  new_products: KnowledgeNewProduct[];
+}
+
 export interface KnowledgeDraft {
   draft_id: string;
   sector_id: string;
   source_type: string;
   source_ref: string;
   extracted: {
-    relations?: { source_name: string; target_name: string }[];
-    bottleneck_hints?: { product_name: string }[];
+    relations?: KnowledgeRelation[];
+    bottleneck_hints?: { product_id?: string; product_name?: string; confidence?: string }[];
+    new_products?: KnowledgeNewProduct[];
+    evidence_excerpt?: string;
   };
   status: string;
 }
@@ -557,8 +612,11 @@ export const getUploadedDocuments = (sectorId: string) =>
 export const getKnowledgeDrafts = (sectorId: string) =>
   api.get<{ items: KnowledgeDraft[] }>("/knowledge/drafts", { params: { sector_id: sectorId } }).then((r) => r.data);
 
-export const confirmKnowledgeDraft = (draftId: string) =>
-  api.post(`/knowledge/drafts/${draftId}/confirm`).then((r) => r.data);
+export const validateKnowledgeDraft = (draftId: string) =>
+  api.get<KnowledgeDraftValidation>(`/knowledge/drafts/${draftId}/validate`).then((r) => r.data);
+
+export const confirmKnowledgeDraft = (draftId: string, force = false) =>
+  api.post(`/knowledge/drafts/${draftId}/confirm`, null, { params: { force } }).then((r) => r.data);
 
 export const getPendingReviews = () =>
   api.get<{ items: { pending_id: string; action_type: string; target_id: string; first_operator: string }[] }>(

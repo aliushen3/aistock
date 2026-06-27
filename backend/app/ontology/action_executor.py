@@ -202,6 +202,8 @@ class ActionExecutor:
         """完整执行含 CandidatePoolEntry 状态写回。"""
         if action_type == "CalibrateChain":
             return self._execute_calibrate_chain(params, operator)
+        if action_type == "CreateProduct":
+            return self._execute_create_product(target_id, params, operator)
 
         spec = ontology_registry.get_action_type(action_type)
         if spec is None:
@@ -410,7 +412,8 @@ class ActionExecutor:
         if not changed and operation != "modify":
             raise ActionError("链路未变更（可能已存在或不存在）", "no_change")
 
-        invalidate_store_cache()
+        if pg_store.is_db_enabled():
+            invalidate_store_cache()
         link_id = f"{source_id}:{target_id}"
         audit_entry = audit_log.record(
             action="ontology.CalibrateChain",
@@ -418,6 +421,9 @@ class ActionExecutor:
             target=f"Link.upstream_of:{link_id}",
             detail={"params": params, "operation": operation},
         )
+        from app.ontology.graph_projector import project_graph
+
+        project_graph()
         return ActionResult(
             action_type="CalibrateChain",
             target_type="Link.upstream_of",
@@ -426,6 +432,72 @@ class ActionExecutor:
             effects_applied=[{"operation": operation, "source_id": source_id, "target_id": target_id}],
             audit_id=audit_entry.id,
             message=f"产业链关系已{operation}",
+        )
+
+    def _execute_create_product(
+        self, sector_id: str, params: dict[str, Any], operator: str
+    ) -> ActionResult:
+        spec = ontology_registry.get_action_type("CreateProduct")
+        if spec is None:
+            raise ActionError("未知 Action Type: CreateProduct", "unknown_action")
+        if not check_permission(operator, spec.get("permissions", [])):
+            raise ActionError(f"操作者 {operator} 无权执行 CreateProduct", "permission_denied")
+        self._validate_params(spec.get("parameters", []), params)
+
+        from app.ontology import pg_store
+        from app.services.graph_store import get_store, invalidate_store_cache
+
+        store = get_store()
+        if store.get_sector(sector_id) is None:
+            raise ActionError(f"赛道不存在: {sector_id}", "not_found")
+
+        product_id = params["product_id"]
+        name = params["name"]
+        layer = params.get("layer") or "material"
+        if store.get_product(product_id):
+            raise ActionError(f"产品已存在: {product_id}", "already_exists")
+
+        created = False
+        if pg_store.is_db_enabled():
+            created = pg_store.create_product(
+                product_id,
+                name,
+                sector_id,
+                layer=layer,
+                attrs={"source_ref": params.get("source_ref")},
+            )
+        if not created and not pg_store.is_db_enabled():
+            store.products[product_id] = {
+                "id": product_id,
+                "name": name,
+                "layer": layer,
+                "sector_id": sector_id,
+                "bottleneck_status": "none",
+                "serenity_niche": False,
+            }
+            created = True
+        if not created:
+            raise ActionError("产品节点创建失败", "create_failed")
+
+        if pg_store.is_db_enabled():
+            invalidate_store_cache()
+        from app.ontology.graph_projector import project_graph
+
+        project_graph()
+        audit_entry = audit_log.record(
+            action="ontology.CreateProduct",
+            operator=operator,
+            target=f"Product:{product_id}",
+            detail={"params": params, "sector_id": sector_id},
+        )
+        return ActionResult(
+            action_type="CreateProduct",
+            target_type="Product",
+            target_id=product_id,
+            operator=operator,
+            effects_applied=[{"product_id": product_id, "name": name, "sector_id": sector_id}],
+            audit_id=audit_entry.id,
+            message=f"已新建产品节点「{name}」",
         )
 
 

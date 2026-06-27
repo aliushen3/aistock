@@ -19,21 +19,29 @@ from app.db.session import SessionLocal
 
 SEED_PATH = Path(__file__).resolve().parents[1] / "data" / "seed_ai_compute.json"
 
+EMPTY_SEED_DICT: dict = {
+    "meta": {
+        "source": "empty",
+        "disclaimer": "空图谱启动：赛道/产品/公司由数据同步与知识抽取人工确认后生长。",
+    },
+    "sectors": [],
+    "products": [],
+    "companies": [],
+    "relations": [],
+    "evidence": [],
+}
 
-def is_db_seeded() -> bool:
-    db = SessionLocal()
-    try:
-        count = db.scalar(select(func.count()).select_from(OntSector))
-        return (count or 0) > 0
-    except Exception:
-        return False
-    finally:
-        db.close()
+_PRODUCT_EXTRA_KEYS = ("last_verified_at", "half_life_days")
 
 
-def load_seed_if_empty() -> bool:
-    if is_db_seeded():
-        return False
+def is_demo_seed_enabled() -> bool:
+    from app.config import LOAD_DEMO_SEED
+
+    return LOAD_DEMO_SEED
+
+
+def load_demo_seed_from_json() -> bool:
+    """将 demo JSON 写入空库（调用方需保证库为空或未 seeded）。"""
     with open(SEED_PATH, encoding="utf-8") as f:
         seed = json.load(f)
     db = SessionLocal()
@@ -67,6 +75,7 @@ def load_seed_if_empty() -> bool:
                     bottleneck_status=p.get("bottleneck_status", "none"),
                     serenity_niche=p.get("serenity_niche", False),
                     provenance_ids=p.get("provenance_ids", []),
+                    attrs=_product_attrs(p),
                 )
             )
         for c in seed.get("companies", []):
@@ -105,6 +114,30 @@ def load_seed_if_empty() -> bool:
         raise
     finally:
         db.close()
+
+
+def _product_attrs(raw: dict) -> dict:
+    return {k: raw[k] for k in _PRODUCT_EXTRA_KEYS if k in raw}
+
+
+def is_db_seeded() -> bool:
+    db = SessionLocal()
+    try:
+        count = db.scalar(select(func.count()).select_from(OntSector))
+        return (count or 0) > 0
+    except Exception:
+        return False
+    finally:
+        db.close()
+
+
+def load_seed_if_empty() -> bool:
+    """空库时可选灌入 demo 种子（受 LOAD_DEMO_SEED 控制）。"""
+    if not is_demo_seed_enabled():
+        return False
+    if is_db_seeded():
+        return False
+    return load_demo_seed_from_json()
 
 
 def build_seed_dict_from_db() -> dict:

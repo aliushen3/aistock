@@ -5,6 +5,8 @@ from __future__ import annotations
 from app.adapters.announcement.akshare_announcement import AkshareAnnouncementAdapter
 from app.adapters.announcement.mock_announcement import MockAnnouncementAdapter
 from app.adapters.cninfo_provider import CninfoDataAdapter
+from app.adapters.constituent.akshare_constituent import AkshareConstituentAdapter
+from app.adapters.constituent.mock_constituent import MockConstituentAdapter
 from app.adapters.financial.mock_financial import MockFinancialAdapter
 from app.adapters.financial.tushare_financial import TushareFinancialAdapter
 from app.adapters.market.akshare_provider import AkshareMarketAdapter
@@ -19,6 +21,7 @@ from app.adapters.research.mock_research import MockResearchAdapter
 from app.config import (
     DATA_ADAPTER,
     DATA_ADAPTER_ANNOUNCEMENT,
+    DATA_ADAPTER_CONSTITUENT,
     DATA_ADAPTER_FINANCIAL,
     DATA_ADAPTER_MARKET,
     DATA_ADAPTER_METRICS,
@@ -51,6 +54,11 @@ _financial_adapters = {
 _research_adapters = {
     "mock": MockResearchAdapter(),
     "em": EmResearchAdapter(),
+}
+
+_constituent_adapters = {
+    "mock": MockConstituentAdapter(),
+    "akshare": AkshareConstituentAdapter(),
 }
 
 _legacy_adapters = {
@@ -99,6 +107,14 @@ def get_research_adapter(name: str | None = None):
     return adapter
 
 
+def get_constituent_adapter(name: str | None = None):
+    key = (name or DATA_ADAPTER_CONSTITUENT).lower()
+    adapter = _constituent_adapters.get(key)
+    if adapter is None:
+        raise ValueError(f"未知成分股适配器: {key}，可用: {list(_constituent_adapters.keys())}")
+    return adapter
+
+
 def get_adapter(name: str | None = None):
     """兼容旧版单体适配器选择（演示 / 巨潮）。"""
     key = (name or DATA_ADAPTER).lower()
@@ -142,6 +158,7 @@ def list_adapters() -> list[dict]:
         ("metrics", _metrics_adapters, DATA_ADAPTER_METRICS),
         ("financial", _financial_adapters, DATA_ADAPTER_FINANCIAL),
         ("research", _research_adapters, DATA_ADAPTER_RESEARCH),
+        ("constituent", _constituent_adapters, DATA_ADAPTER_CONSTITUENT),
     ):
         for adapter in mapping.values():
             detail: dict = {

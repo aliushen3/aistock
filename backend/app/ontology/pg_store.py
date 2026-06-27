@@ -104,6 +104,38 @@ def update_product_property(product_id: str, key: str, value) -> None:
         db.close()
 
 
+def create_product(
+    product_id: str,
+    name: str,
+    sector_id: str,
+    layer: str = "material",
+    attrs: dict | None = None,
+) -> bool:
+    """新建 OntProduct 节点（知识抽取确认 / CreateProduct Action）。"""
+    if not _db_enabled:
+        return False
+    db = SessionLocal()
+    try:
+        if db.get(OntProduct, product_id):
+            return False
+        if db.get(OntSector, sector_id) is None:
+            return False
+        merged_attrs = {"created_by": "knowledge_extract", "status": "confirmed", **(attrs or {})}
+        db.add(
+            OntProduct(
+                id=product_id,
+                name=name,
+                layer=layer,
+                sector_id=sector_id,
+                attrs=merged_attrs,
+            )
+        )
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
 def upsert_candidate_entry(
     entry_id: str,
     sector_id: str,

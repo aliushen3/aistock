@@ -16,10 +16,20 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def reset_state():
+    from app.config import LOAD_DEMO_SEED
+    from app.db.session import init_db
     from app.ontology.property_overlays import set_product_property, set_sector_property
     from app.services.bearcase_store import clear_bear_state
+    from app.services.graph_store import invalidate_store_cache
+    from tests.seed_reset import reload_demo_seed
 
     clear_all()
+    clear_pool_state()
+    clear_bear_state()
+    if LOAD_DEMO_SEED and init_db():
+        reload_demo_seed()
+    else:
+        invalidate_store_cache()
     clear_pool_state()
     clear_bear_state()
     set_sector_property("sector_ai_compute", "status", "beta_confirmed")
@@ -27,6 +37,7 @@ def reset_state():
     set_product_property("prod_cowos", "bottleneck_status", "bottleneck_confirmed")
     set_product_property("prod_low_dk_glass", "serenity_niche_confirmed", True)
     yield
+    invalidate_store_cache()
     clear_all()
     clear_pool_state()
     clear_bear_state()
@@ -421,6 +432,9 @@ def test_typed_adapters_registry():
     metrics_names = {a["name"] for a in list_adapters() if a.get("kind") == "metrics"}
     assert {"mock", "akshare"}.issubset(metrics_names)
 
+    constituent_names = {a["name"] for a in list_adapters() if a.get("kind") == "constituent"}
+    assert {"mock", "akshare"}.issubset(constituent_names)
+
     r = client.post(
         "/api/v1/data/sync/metrics/sector_ai_compute",
         params={"adapter": "mock"},
@@ -725,6 +739,78 @@ def test_dashboard_material_metrics_bucket(monkeypatch):
     assert mat["price"] == 95000.0
     assert mat["price_yoy"] == -0.32
     assert mat["unit"] == "CNY"
+
+
+def test_map_company_to_products():
+    from app.db.models import OntProduct
+    from app.services.graph_ingest import map_company_to_products
+
+    products = [
+        OntProduct(
+            id="prod_optical_module",
+            name="光模块",
+            layer="mid",
+            sector_id="sector_ai_compute",
+        ),
+        OntProduct(
+            id="prod_hsb_pcb",
+            name="高速PCB",
+            layer="mid",
+            sector_id="sector_ai_compute",
+        ),
+    ]
+    config = {
+        "default_product_id": "prod_optical_module",
+        "product_keywords": {
+            "prod_optical_module": ["中际", "光模块"],
+            "prod_hsb_pcb": ["PCB", "沪电"],
+        },
+    }
+    assert map_company_to_products("中际旭创", products, config) == ["prod_optical_module"]
+    assert map_company_to_products("沪电股份", products, config) == ["prod_hsb_pcb"]
+    assert map_company_to_products("未知公司", products, config) == ["prod_optical_module"]
+
+
+def test_constituent_row_parsing():
+    from app.adapters.constituent.akshare_constituent import _row_to_record
+
+    rec = _row_to_record({"代码": "300308", "名称": "中际旭创", "总市值": 120000000000}, "concept", "CPO概念")
+    assert rec is not None
+    assert rec["stock_code"] == "300308"
+    assert rec["name"] == "中际旭创"
+    assert rec["market_cap_billion"] == 1200.0
+
+
+def test_sync_constituents_mock(monkeypatch):
+    from tests.seed_reset import reload_demo_seed
+    from app.services.graph_store import get_store
+
+    monkeypatch.setattr("app.ontology.graph_projector.project_graph", lambda: None)
+
+    try:
+        before = get_store()
+        assert before.get_company("AI0001") is not None
+
+        r = client.post(
+            "/api/v1/data/sync/constituents/sector_ai_compute",
+            params={"adapter": "mock"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "ok"
+        assert body["adapter"] == "mock"
+        assert body["companies_upserted"] >= 3
+        assert body["demo_removed"] >= 1
+
+        from app.services.graph_store import invalidate_store_cache
+
+        invalidate_store_cache()
+        store = get_store()
+        assert store.get_company("601138") is not None
+        assert store.get_company("300308") is not None
+        assert store.get_company("AI0001") is None
+    finally:
+        reload_demo_seed()
 
 
 def test_candidate_pool_overlay_seed_fallback(monkeypatch):
@@ -1156,6 +1242,128 @@ def test_source_trust_and_draft_validation_f5():
     )
     assert hard["can_confirm"] is True
     assert hard["hard_source_count"] >= 1
+
+
+def test_normalize_extraction_new_product():
+    from app.services import extraction as extraction_service
+
+    normalized = extraction_service.normalize_extraction(
+        {
+            "relations": [
+                {
+                    "type": "UPSTREAM_OF",
+                    "source_name": "硅光子芯片",
+                    "target_name": "光模块",
+                    "confidence": "medium",
+                }
+            ],
+            "bottleneck_hints": [{"product_name": "硅光子芯片", "confidence": "low"}],
+        },
+        "sector_ai_compute",
+        source_type="research_report",
+        source_ref="测试-新环节",
+    )
+    assert len(normalized["new_products"]) == 1
+    assert normalized["new_products"][0]["name"] == "硅光子芯片"
+    assert normalized["relations"][0]["source_id"] == normalized["new_products"][0]["product_id"]
+    assert normalized["relations"][0]["target_id"] == "prod_optical_module"
+    assert normalized["bottleneck_hints"][0]["product_id"] == normalized["new_products"][0]["product_id"]
+
+
+def test_confirm_draft_creates_new_product():
+    from app.services import extraction as extraction_service
+
+    store = get_store()
+    draft = extraction_service.ingest_document(
+        "sector_ai_compute",
+        "research_report",
+        "新环节测试研报",
+        "硅光子芯片是光模块的上游，产能紧张属于瓶颈环节。",
+    )
+    new_name = "硅光子芯片"
+    new_products = draft["extracted"].get("new_products", [])
+    assert any(np["name"] == new_name for np in new_products)
+
+    with pytest.raises(ValueError, match="多源交叉验证未通过"):
+        extraction_service.confirm_draft(draft["draft_id"], force=False)
+
+    result = extraction_service.confirm_draft(draft["draft_id"], force=True)
+    assert result["status"] == "confirmed"
+    assert len(result["applied_products"]) >= 1
+
+    store = get_store()
+    new_pid = next(np["product_id"] for np in new_products if np["name"] == new_name)
+    product = store.get_product(new_pid)
+    assert product is not None
+    assert product["name"] == new_name
+
+    upstream = store.upstream_of("prod_optical_module")
+    assert new_pid in upstream
+
+
+def test_empty_graph_when_demo_seed_disabled(monkeypatch):
+    monkeypatch.setattr("app.config.LOAD_DEMO_SEED", False)
+    from app.services.graph_store import get_store, invalidate_store_cache, set_store_from_db
+
+    set_store_from_db(False)
+    invalidate_store_cache()
+    store = get_store()
+    assert store.list_sectors() == []
+    assert store.list_products() == []
+
+
+def test_load_seed_if_empty_respects_demo_flag(monkeypatch):
+    from app.db.session import init_db
+    from app.ontology import pg_store
+    from app.ontology.seed_loader import load_seed_if_empty
+
+    if not init_db():
+        return
+    monkeypatch.setattr("app.config.LOAD_DEMO_SEED", False)
+    pg_store.set_db_enabled(True)
+    assert load_seed_if_empty() is False
+
+
+def test_sector_bootstrap_orchestrator_step():
+    r = client.post(
+        "/api/v1/agents/orchestrator/run",
+        json={
+            "sector_id": "sector_ai_compute",
+            "steps": ["sector_bootstrap"],
+            "stop_on_gate": False,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["step"] == "sector_bootstrap"
+    assert body["results"][0]["status"] == "ok"
+
+
+def test_adopt_recommendation_auto_bootstrap(monkeypatch):
+    from app.services import sector_adopt
+
+    monkeypatch.setattr(
+        sector_adopt,
+        "bootstrap_sector",
+        lambda sector_id, **kwargs: {
+            "sector_id": sector_id,
+            "constituents": {"status": "skipped", "reason": "test"},
+            "report_draft": {"status": "empty"},
+        },
+    )
+    rec = client.post(
+        "/api/v1/agents/sector-recommend/run",
+        json={"focus": "测试赛道", "max_recommendations": 1},
+    )
+    assert rec.status_code == 200
+    items = rec.json().get("recommendations") or []
+    if not items:
+        return
+    rec_id = items[0]["rec_id"]
+    adopt = client.post(f"/api/v1/agents/sector-recommendations/{rec_id}/adopt")
+    assert adopt.status_code == 200
+    body = adopt.json()
+    assert body.get("bootstrap") is not None
 
 
 def test_agent_matrix_f6():

@@ -1,0 +1,17 @@
+{
+  "_comment": "sector_id -> 东财板块/概念 + 公司名关键词粗映射到 OntProduct。新赛道按需扩展 boards 与 product_keywords。",
+  "sector_ai_compute": {
+    "boards": [
+      {"type": "concept", "name": "CPO概念"},
+      {"type": "concept", "name": "算力概念"}
+    ],
+    "default_product_id": "prod_optical_module",
+    "product_keywords": {
+      "prod_optical_module": ["光模块", "中际", "新易盛", "天孚", "光通信", "光迅"],
+      "prod_gpu": ["GPU", "寒武纪", "海光", "景嘉微"],
+      "prod_hsb_pcb": ["PCB", "沪电", "深南", "胜宏"],
+      "prod_cowos": ["封装", "长电", "通富", "华天"],
+      "prod_ai_server": ["服务器", "工业富联", "浪潮", "中科曙光"]
+    }
+  }
+}

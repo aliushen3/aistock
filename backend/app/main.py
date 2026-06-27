@@ -20,17 +20,19 @@ async def lifespan(app: FastAPI):
 
     if init_db():
         pg_store.set_db_enabled(True)
-        load_seed_if_empty()
+        seeded = load_seed_if_empty()
         load_metrics_seed_if_empty()
         seed_ods_metrics_if_empty()
         set_store_from_db(True)
         invalidate_store_cache()
-        project_graph()
+        if seeded:
+            project_graph()
     else:
         invalidate_store_cache()
 
     store = get_store()
-    index_evidence(list(store.evidence.values()))
+    if store.evidence:
+        index_evidence(list(store.evidence.values()))
     yield
 
 

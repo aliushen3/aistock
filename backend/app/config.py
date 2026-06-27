@@ -9,6 +9,9 @@ NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "aistock123")
 USE_SQLITE_FALLBACK = os.getenv("AISTOCK_SQLITE", "").lower() in ("1", "true", "yes")
 
+# 演示种子：false=生产空图启动；true=首次建库灌入 seed_ai_compute.json（仅 demo）
+LOAD_DEMO_SEED = os.getenv("LOAD_DEMO_SEED", "false").lower() in ("1", "true", "yes")
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "aistock_evidence")
 QDRANT_DOCUMENTS_COLLECTION = os.getenv("QDRANT_DOCUMENTS_COLLECTION", "aistock_documents")
@@ -38,6 +41,8 @@ DATA_ADAPTER_METRICS = os.getenv("DATA_ADAPTER_METRICS", "mock")
 DATA_ADAPTER_FINANCIAL = os.getenv("DATA_ADAPTER_FINANCIAL", "mock")
 # research: mock | em（AkShare 东财研报，免费）
 DATA_ADAPTER_RESEARCH = os.getenv("DATA_ADAPTER_RESEARCH", "mock")
+# constituent: mock | akshare（板块/概念成分股 → OntCompany 真实代码）
+DATA_ADAPTER_CONSTITUENT = os.getenv("DATA_ADAPTER_CONSTITUENT", "mock")
 
 # 公告/研报回看天数
 ANNOUNCEMENT_LOOKBACK_DAYS = int(os.getenv("ANNOUNCEMENT_LOOKBACK_DAYS", "90"))

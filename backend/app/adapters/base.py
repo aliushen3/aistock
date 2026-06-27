@@ -25,6 +25,10 @@ class ResearchReportRecord(dict):
     """report_key, stock_code, title, org_name, rating, report_date, url"""
 
 
+class ConstituentRecord(dict):
+    """stock_code, name, market_cap_billion, board_type, board_name"""
+
+
 class MarketDataAdapter(Protocol):
     name: str
 
@@ -57,6 +61,13 @@ class ResearchReportDataAdapter(Protocol):
     name: str
 
     def fetch_research_reports(self, stock_codes: list[str], limit: int = 20) -> list[ResearchReportRecord]:
+        ...
+
+
+class ConstituentDataAdapter(Protocol):
+    name: str
+
+    def fetch_board_constituents(self, board_type: str, board_name: str) -> list[ConstituentRecord]:
         ...
 
 

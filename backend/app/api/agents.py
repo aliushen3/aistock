@@ -281,10 +281,31 @@ def get_sector_recommendations(status: str | None = None, limit: int = 20):
 
 
 @router.post("/sector-recommendations/{rec_id}/adopt")
-def adopt_sector_recommendation(rec_id: str, operator: str = "analyst"):
-    """采纳推荐：新赛道写入 ont_sector（beta_candidate），已有赛道重置为待确认。"""
+def adopt_sector_recommendation(rec_id: str, operator: str = "analyst", auto_bootstrap: bool = True):
+    """采纳推荐：新赛道写入 ont_sector（beta_candidate），可选自动冷启动。"""
     try:
-        return adopt_recommendation(rec_id, operator=operator)
+        return adopt_recommendation(rec_id, operator=operator, auto_bootstrap=auto_bootstrap)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class SectorBootstrapRequest(BaseModel):
+    sector_id: str
+    sync_constituents: bool = True
+    ingest_reports: bool = True
+
+
+@router.post("/sector-bootstrap/run")
+def run_sector_bootstrap(req: SectorBootstrapRequest):
+    """手动触发赛道冷启动（成分股 + 研报草案）。"""
+    from app.services.sector_bootstrap import bootstrap_sector
+
+    try:
+        return bootstrap_sector(
+            req.sector_id,
+            sync_constituents=req.sync_constituents,
+            ingest_reports=req.ingest_reports,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

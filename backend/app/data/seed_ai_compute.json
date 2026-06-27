@@ -3,6 +3,8 @@
     "sector": "AI算力",
     "version": "0.1.0",
     "disclaimer": "本文件为一期 MVP 演示用【示意性种子数据】，公司代码/名称均为虚构示例，所有数值仅用于跑通流程，不构成任何投资建议或真实产业数据。",
+    "demo_only": true,
+    "usage": "仅当 LOAD_DEMO_SEED=true 时自动灌库；生产请设 LOAD_DEMO_SEED=false 空图启动",
     "edge_semantics": "relations 中 UPSTREAM_OF 表示 source 是 target 的上游（source -[:UPSTREAM_OF]-> target）"
   },
   "sectors": [
