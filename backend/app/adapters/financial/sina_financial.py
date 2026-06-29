@@ -4,6 +4,13 @@ from app.adapters.market._utils import is_real_a_share_code, normalize_display_c
 from app.services.a_share_data_source import AShareDataError, build_financial_snapshot
 
 
+def _ratio(value: float | None) -> float | None:
+    """统一比率口径为小数（与 tushare 对齐）：>1 视为百分数，折算为小数。"""
+    if value is None:
+        return None
+    return value / 100 if abs(value) > 1 else value
+
+
 class SinaFinancialAdapter:
     name = "sina"
     mode = "live"
@@ -24,12 +31,13 @@ class SinaFinancialAdapter:
             rows.append(
                 {
                     "stock_code": snap["stock_code"],
-                    "end_date": period,
+                    # 与 tushare 统一为 YYYYMMDD，避免同股跨源 end_date 格式不一致
+                    "end_date": period.replace("-", ""),
                     "ann_date": None,
                     "revenue": snap.get("revenue"),
                     "net_profit": snap.get("net_profit"),
-                    "gross_margin": snap.get("gross_margin"),
-                    "roe": snap.get("roe"),
+                    "gross_margin": _ratio(snap.get("gross_margin")),
+                    "roe": _ratio(snap.get("roe")),
                     "eps": snap.get("eps"),
                 }
             )

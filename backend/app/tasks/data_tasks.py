@@ -6,6 +6,7 @@ from app.celery_app import celery_app
 from app.services.graph_store import get_store
 from app.services.graph_ingest import sync_constituents
 from app.services.ods_service import (
+    sync_all_ods_layers,
     sync_announcements,
     sync_external_reports,
     sync_financials,
@@ -100,3 +101,24 @@ def sync_sector_bundle_task(sector_id: str = "sector_ai_compute"):
         "financials": fin,
         "external_reports": rep,
     }
+
+
+@celery_app.task(bind=True, name="data.sync_sector_seven_layer")
+def sync_sector_seven_layer_task(self, sector_id: str = "sector_ai_compute"):
+    """七层 ODS 就绪层（行情/研报/财报/公告）直连同步入库。"""
+    self.update_state(state="PROGRESS", meta={"step": "seven_layer_sync", "sector_id": sector_id})
+    return sync_all_ods_layers(sector_id)
+
+
+@celery_app.task(bind=True, name="data.sync_watchlist_seven_layer")
+def sync_watchlist_seven_layer_task(self):
+    """对动态观察清单内全部赛道执行七层 ODS 同步（无人值守定时采集入口）。"""
+    sector_ids = list_watchlist_sector_ids()
+    results = []
+    for sid in sector_ids:
+        self.update_state(state="PROGRESS", meta={"step": "seven_layer_sync", "sector_id": sid})
+        try:
+            results.append({"sector_id": sid, **sync_all_ods_layers(sid)})
+        except Exception as exc:  # 单赛道失败不阻断整体采集
+            results.append({"sector_id": sid, "status": "error", "detail": str(exc)})
+    return {"sector_count": len(results), "results": results}

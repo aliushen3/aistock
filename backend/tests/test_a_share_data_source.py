@@ -181,3 +181,106 @@ def test_orchestrator_data_collection_steps(monkeypatch):
     assert resp.status_code == 200
     steps = [r["step"] for r in resp.json()["results"]]
     assert steps == ["sector_bootstrap", "data_source_fetch", "data_source_ods_sync"]
+
+
+def test_request_retry_recovers(monkeypatch):
+    """卡点3：连接异常时重试恢复。"""
+    from app.services import a_share_data_source as ds
+
+    calls = {"n": 0}
+
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        def request(self, method, url, **kwargs):
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise RuntimeError("connection reset")
+            return _Resp()
+
+    monkeypatch.setattr(ds, "_http_client", lambda: _Client())
+    monkeypatch.setattr(ds.time, "sleep", lambda *a, **k: None)
+    resp = ds._get("http://example.com", label="t")
+    assert resp.status_code == 200
+    assert calls["n"] == 2
+
+
+def test_request_retry_exhausts_on_status(monkeypatch):
+    """卡点3：可重试状态码（403）耗尽后抛错。"""
+    from app.services import a_share_data_source as ds
+
+    class _Resp:
+        status_code = 403
+
+    class _Client:
+        def request(self, method, url, **kwargs):
+            return _Resp()
+
+    monkeypatch.setattr(ds, "_http_client", lambda: _Client())
+    monkeypatch.setattr(ds.time, "sleep", lambda *a, **k: None)
+    with pytest.raises(Exception):
+        ds._get("http://example.com", label="t")
+
+
+def test_cold_start_industry_signals(monkeypatch):
+    """卡点2：冷启动信号工具聚合行业排名 + 热点。"""
+    from app.agents import sector_agent_tools as st
+
+    monkeypatch.setattr(
+        "app.services.a_share_data_source.fetch_industry_comparison",
+        lambda top_n=8: {"top": [{"name": "光模块", "change_pct": 5.2, "leader": "中际旭创"}]},
+    )
+    monkeypatch.setattr(
+        "app.services.a_share_data_source.fetch_ths_hot_reason",
+        lambda: [{"name": "天孚通信", "reason": "CPO+光模块", "change_pct": 10.0}],
+    )
+    out = st.tool_cold_start_industry_signals(top_n=5)
+    assert out["industry_ranking"][0]["name"] == "光模块"
+    assert out["hot_themes"][0]["reason"] == "CPO+光模块"
+
+
+def test_cold_start_industry_signals_degrades(monkeypatch):
+    """卡点2：信号源失败时安全降级为空，不抛错。"""
+    from app.agents import sector_agent_tools as st
+
+    def _boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("app.services.a_share_data_source.fetch_industry_comparison", _boom)
+    monkeypatch.setattr("app.services.a_share_data_source.fetch_ths_hot_reason", _boom)
+    out = st.tool_cold_start_industry_signals()
+    assert out == {"industry_ranking": [], "hot_themes": []}
+
+
+def test_cold_start_recommendations():
+    """卡点2：空图证据缺失时用行业轮动生成待验证候选。"""
+    from app.agents.sector_recommend_agent import _cold_start_recommendations
+
+    context = {
+        "cold_start_signals": {
+            "industry_ranking": [
+                {"name": "光模块", "change_pct": 5.2, "leader": "中际旭创"},
+                {"name": "CPO", "change_pct": 4.1, "leader": "天孚通信"},
+            ],
+            "hot_themes": [{"name": "天孚", "reason": "CPO放量", "change_pct": 9}],
+        }
+    }
+    recs = _cold_start_recommendations(context, max_items=3)
+    assert recs[0]["sector_name"] == "光模块"
+    assert recs[0]["is_new"] is True
+    assert recs[0]["beta_score"] == 0.35
+
+
+def test_sync_all_ods_layers(monkeypatch):
+    """卡点1：七层 ODS 全层同步覆盖四个就绪层。"""
+    from app.services import ods_service
+
+    monkeypatch.setattr(
+        ods_service,
+        "sync_layer_to_ods",
+        lambda layer, sector_id: {"status": "skipped", "layer": layer},
+    )
+    out = ods_service.sync_all_ods_layers("sector_ai_compute")
+    assert out["sector_id"] == "sector_ai_compute"
+    assert set(out["results"].keys()) == {"market", "research", "fundamental", "announcement"}

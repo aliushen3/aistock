@@ -46,6 +46,11 @@ TOOL_SPECS: list[dict] = [
         "input_schema": {"focus": "可选关注方向"},
     },
     {"name": "get_beta_criteria", "description": "获取 Beta 赛道判定标准", "input_schema": {}},
+    {
+        "name": "cold_start_industry_signals",
+        "description": "冷启动信号：东财行业板块涨跌排名 + 同花顺当日题材热点（空图无证据时的候选来源）",
+        "input_schema": {"top_n": "默认 8"},
+    },
 ]
 
 
@@ -109,6 +114,34 @@ def tool_get_beta_criteria() -> dict:
     return BETA_CRITERIA
 
 
+def tool_cold_start_industry_signals(top_n: int = 8) -> dict:
+    """冷启动证据源：从七层信号层拉行业轮动 + 当日热点题材。
+
+    直连东财/同花顺，任一源失败均安全降级为空，不阻断赛道推荐主流程。
+    """
+    from app.services.a_share_data_source import (
+        fetch_industry_comparison,
+        fetch_ths_hot_reason,
+    )
+
+    out: dict[str, Any] = {"industry_ranking": [], "hot_themes": []}
+    try:
+        ranking = fetch_industry_comparison(top_n=top_n)
+        out["industry_ranking"] = ranking.get("top", [])[:top_n]
+    except Exception:  # noqa: BLE001 网络/风控失败时降级
+        pass
+    try:
+        hot = fetch_ths_hot_reason()
+        out["hot_themes"] = [
+            {"name": h.get("name"), "reason": h.get("reason"), "change_pct": h.get("change_pct")}
+            for h in hot[:top_n]
+            if h.get("reason")
+        ]
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
 def execute_tool(name: str, action_input: dict | None = None) -> Any:
     """ReAct 工具分发。"""
     inp = action_input or {}
@@ -126,6 +159,8 @@ def execute_tool(name: str, action_input: dict | None = None) -> Any:
         return tool_get_watchlist(inp.get("focus"))
     if name == "get_beta_criteria":
         return tool_get_beta_criteria()
+    if name == "cold_start_industry_signals":
+        return tool_cold_start_industry_signals(int(inp.get("top_n") or 8))
     raise ValueError(f"未知工具: {name}")
 
 
@@ -133,13 +168,15 @@ def build_agent_context(focus: str | None = None, query: str | None = None) -> d
     """预采集上下文（规则模式 / ReAct 初始状态）。"""
     watchlist_payload = build_dynamic_watchlist(focus=focus, refresh=True)
     search_q = " ".join(filter(None, [focus, query, "高景气 需求增长 资本开支 瓶颈 产业链"]))
-    return {
+    existing_sectors = tool_list_sectors()
+    watchlist = watchlist_payload["watchlist"]
+    context = {
         "focus": focus,
         "query": query,
         "beta_criteria": tool_get_beta_criteria(),
-        "existing_sectors": tool_list_sectors(),
+        "existing_sectors": existing_sectors,
         "metrics_signals": tool_collect_metrics_signals(),
-        "watchlist": watchlist_payload["watchlist"],
+        "watchlist": watchlist,
         "watchlist_meta": {
             "dynamic": True,
             "watchlist_count": watchlist_payload["watchlist_count"],
@@ -148,3 +185,7 @@ def build_agent_context(focus: str | None = None, query: str | None = None) -> d
         "report_themes": watchlist_payload["report_themes"],
         "evidence_hits": tool_search_research_evidence(search_q, top_k=10),
     }
+    # 冷启动：空图且观察清单为空时，用信号层行业轮动/热点提供候选证据
+    if not existing_sectors and not watchlist:
+        context["cold_start_signals"] = tool_cold_start_industry_signals()
+    return context

@@ -136,15 +136,75 @@ def _rule_recommend(context: dict, max_items: int = 5) -> dict:
         )
 
     recs.sort(key=lambda x: -x["beta_score"])
+
+    cold_start_used = False
+    if not recs:
+        cold_recs = _cold_start_recommendations(context, max_items)
+        if cold_recs:
+            recs = cold_recs
+            cold_start_used = True
+
     theme_count = len(context.get("report_themes", {}).get("themes", []))
+    summary = (
+        f"规则扫描：研报抽取 {theme_count} 个主题，"
+        f"证据 {len(context['evidence_hits'])} 条，推荐 {len(recs[:max_items])} 个赛道"
+    )
+    if cold_start_used:
+        summary = (
+            f"冷启动扫描：无存量赛道/研报证据，基于东财行业轮动与同花顺热点"
+            f"生成 {len(recs[:max_items])} 个待验证候选赛道"
+        )
     return {
-        "agent_summary": (
-            f"规则扫描：研报抽取 {theme_count} 个主题，"
-            f"证据 {len(context['evidence_hits'])} 条，推荐 {len(recs[:max_items])} 个赛道"
-        ),
+        "agent_summary": summary,
         "recommendations": recs[:max_items],
-        "agent_mode": "rule_v1",
+        "agent_mode": "cold_start_v1" if cold_start_used else "rule_v1",
     }
+
+
+def _cold_start_recommendations(context: dict, max_items: int) -> list[dict]:
+    """空图冷启动：用行业轮动排名 + 热点题材生成待验证候选赛道。"""
+    cold = context.get("cold_start_signals") or {}
+    ranking = cold.get("industry_ranking") or []
+    hot_themes = cold.get("hot_themes") or []
+    theme_text = "、".join(
+        f"{t.get('name')}（{t.get('reason')}）" for t in hot_themes[:3] if t.get("name")
+    )
+
+    recs: list[dict] = []
+    seen: set[str] = set()
+    for row in ranking[:max_items]:
+        name = (row.get("name") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        change_pct = row.get("change_pct")
+        leader = row.get("leader") or ""
+        rationale = (
+            f"冷启动候选：东财行业板块「{name}」近日涨幅 {change_pct}%"
+            + (f"，领涨 {leader}" if leader else "")
+            + (f"；当日热点：{theme_text}" if theme_text else "")
+            + "。无存量证据，须研究员补全产业链拓扑后再确认。"
+        )
+        recs.append(
+            {
+                "sector_name": name,
+                "sector_id": None,
+                "is_new": True,
+                "beta_score": 0.35,
+                "demand_growth_hint": None,
+                "signals": {
+                    "demand_growth_ok": False,
+                    "capex_positive": False,
+                    "research_support_count": 0,
+                },
+                "rationale": rationale,
+                "terminal_products": [],
+                "evidence_refs": [],
+                "risks": _default_risks(name),
+                "next_actions": ["采纳后补全产业链拓扑", "上传研报补强证据", "同步成分股与行情"],
+            }
+        )
+    return recs
 
 
 def _build_rationale(watch: dict, metrics: dict | None, signals: dict, sector_row: dict | None) -> str:

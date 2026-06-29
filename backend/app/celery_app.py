@@ -23,6 +23,10 @@ celery_app.conf.update(
             "task": "data.sync_watchlist_metrics",
             "schedule": 86400.0,
         },
+        "sync-watchlist-seven-layer-daily": {
+            "task": "data.sync_watchlist_seven_layer",
+            "schedule": 86400.0,
+        },
         "monitor-watch-hourly": {
             "task": "agents.monitor_watch",
             "schedule": 3600.0,

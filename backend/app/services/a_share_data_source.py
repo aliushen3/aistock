@@ -13,12 +13,16 @@ from typing import Any
 import httpx
 
 from app.adapters.market._utils import is_real_a_share_code, normalize_display_code
+from app.config import MARKET_HTTP_MAX_RETRY, MARKET_HTTP_RETRY_BACKOFF_SEC
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"
 REPORT_API = "https://reportapi.eastmoney.com/report/list"
 PDF_TPL = "https://pdf.dfcfw.com/pdf/H3_{info_code}_1.pdf"
 DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 EM_MIN_INTERVAL = 1.0
+_HTTP_MAX_RETRY = max(1, MARKET_HTTP_MAX_RETRY)
+_HTTP_BACKOFF = MARKET_HTTP_RETRY_BACKOFF_SEC
+_RETRYABLE_STATUS = {403, 429, 500, 502, 503, 504}
 
 _EM_LOCK = threading.Lock()
 _EM_LAST_CALL = 0.0
@@ -65,12 +69,55 @@ def _sleep_for_eastmoney() -> None:
         _EM_LAST_CALL = time.time()
 
 
+def _request_with_retry(
+    method: str,
+    url: str,
+    *,
+    label: str,
+    pre_request: Any = None,
+    **kwargs: Any,
+) -> httpx.Response:
+    """统一带退避重试的请求：对连接异常与可重试状态码（403/429/5xx）重试。
+
+    pre_request: 每次尝试前调用（如东财限流 sleep）。
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, _HTTP_MAX_RETRY + 1):
+        if pre_request is not None:
+            pre_request()
+        try:
+            resp = _http_client().request(method, url, **kwargs)
+            if resp.status_code in _RETRYABLE_STATUS:
+                raise AShareDataError(f"{label} http {resp.status_code}")
+            return resp
+        except Exception as exc:  # noqa: BLE001 连接级异常也重试
+            last_exc = exc
+            if attempt < _HTTP_MAX_RETRY:
+                time.sleep(_HTTP_BACKOFF * attempt + random.uniform(0.05, 0.2))
+    assert last_exc is not None
+    raise last_exc
+
+
+def _get(url: str, label: str = "ashare", **kwargs: Any) -> httpx.Response:
+    return _request_with_retry("GET", url, label=label, **kwargs)
+
+
+def _post(url: str, label: str = "ashare", **kwargs: Any) -> httpx.Response:
+    return _request_with_retry("POST", url, label=label, **kwargs)
+
+
 def _em_get(url: str, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> httpx.Response:
-    _sleep_for_eastmoney()
     merged_headers = {"User-Agent": UA}
     if headers:
         merged_headers.update(headers)
-    return _http_client().get(url, params=params, headers=merged_headers)
+    return _request_with_retry(
+        "GET",
+        url,
+        label="eastmoney",
+        pre_request=_sleep_for_eastmoney,
+        params=params,
+        headers=merged_headers,
+    )
 
 
 def _safe_float(value: Any) -> float | None:
@@ -121,7 +168,7 @@ def fetch_tencent_quotes(codes: list[str]) -> dict[str, dict[str, Any]]:
     normalized = [_normalize_code(code) for code in codes]
     symbols = [_market_prefix(code) + code for code in normalized]
     url = "https://qt.gtimg.cn/q=" + ",".join(symbols)
-    resp = _http_client().get(url)
+    resp = _get(url, label="tencent")
     resp.raise_for_status()
     data = resp.content.decode("gbk", errors="ignore")
 
@@ -276,8 +323,9 @@ def compute_valuation_snapshot(code: str) -> dict[str, Any]:
 
 @lru_cache(maxsize=1)
 def _cninfo_orgid_map() -> dict[str, str]:
-    resp = _http_client().get(
+    resp = _get(
         "http://www.cninfo.com.cn/new/data/szse_stock.json",
+        label="cninfo_orgid",
         headers={"User-Agent": UA},
     )
     resp.raise_for_status()
@@ -314,8 +362,9 @@ def fetch_cninfo_announcements(code: str, page_size: int = 20) -> list[dict[str,
         "sortType": "",
         "isHLtitle": "true",
     }
-    resp = _http_client().post(
+    resp = _post(
         "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+        label="cninfo",
         data=payload,
         headers={
             "User-Agent": UA,
@@ -345,8 +394,9 @@ def fetch_cninfo_announcements(code: str, page_size: int = 20) -> list[dict[str,
 def fetch_sina_financial_report(code: str, report_type: str = "lrb", num: int = 8) -> list[dict[str, Any]]:
     normalized = _normalize_code(code)
     paper_code = f"{_market_prefix(normalized)}{normalized}"
-    resp = _http_client().get(
+    resp = _get(
         "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022",
+        label="sina",
         params={
             "paperCode": paper_code,
             "source": report_type,
@@ -573,8 +623,9 @@ def fetch_ths_hot_reason(trade_date: str | None = None) -> list[dict[str, Any]]:
         f"http://zx.10jqka.com.cn/event/api/getharden/"
         f"date/{trade_date}/orderby/date/orderway/desc/charset/GBK/"
     )
-    resp = _http_client().get(
+    resp = _get(
         url,
+        label="ths_hot",
         headers={
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
