@@ -546,6 +546,12 @@ def test_auto_market_adapter_fallback():
         def fetch_market_daily(self, codes):
             raise RuntimeError("tushare down")
 
+    class _FailTencent:
+        mode = "live"
+
+        def fetch_market_daily(self, codes):
+            raise RuntimeError("tencent down")
+
     class _OkAkshare:
         mode = "live"
 
@@ -554,6 +560,7 @@ def test_auto_market_adapter_fallback():
 
     adapter = AutoMarketAdapter()
     adapter._tushare = _FailTushare()
+    adapter._tencent = _FailTencent()
     adapter._akshare = _OkAkshare()
     rows = adapter.fetch_market_daily(["600519.SH"])
     assert rows[0]["stock_code"] == "600519"

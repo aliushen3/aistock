@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 from app.adapters.announcement.akshare_announcement import AkshareAnnouncementAdapter
+from app.adapters.announcement.cninfo_direct import DirectCninfoAnnouncementAdapter
 from app.adapters.announcement.mock_announcement import MockAnnouncementAdapter
 from app.adapters.cninfo_provider import CninfoDataAdapter
 from app.adapters.constituent.akshare_constituent import AkshareConstituentAdapter
 from app.adapters.constituent.mock_constituent import MockConstituentAdapter
 from app.adapters.financial.mock_financial import MockFinancialAdapter
+from app.adapters.financial.sina_financial import SinaFinancialAdapter
 from app.adapters.financial.tushare_financial import TushareFinancialAdapter
 from app.adapters.market.akshare_provider import AkshareMarketAdapter
 from app.adapters.market.auto_provider import AutoMarketAdapter
 from app.adapters.market.mock_market import MockMarketAdapter
+from app.adapters.market.tencent_provider import TencentMarketAdapter
 from app.adapters.market.tushare_provider import TushareMarketAdapter
+from app.adapters.research.eastmoney_provider import EastmoneyResearchAdapter
 from app.adapters.metrics.akshare_metrics import AkshareMetricsAdapter
 from app.adapters.metrics.mock_metrics import MockMetricsAdapter
 from app.adapters.mock_provider import MockDataAdapter
@@ -32,12 +36,14 @@ _market_adapters = {
     "mock": MockMarketAdapter(),
     "akshare": AkshareMarketAdapter(),
     "tushare": TushareMarketAdapter(),
+    "tencent": TencentMarketAdapter(),
     "auto": AutoMarketAdapter(),
 }
 
 _announcement_adapters = {
     "mock": MockAnnouncementAdapter(),
     "cninfo": CninfoDataAdapter(),
+    "cninfo_direct": DirectCninfoAnnouncementAdapter(),
     "akshare": AkshareAnnouncementAdapter(),
 }
 
@@ -49,11 +55,13 @@ _metrics_adapters = {
 _financial_adapters = {
     "mock": MockFinancialAdapter(),
     "tushare": TushareFinancialAdapter(),
+    "sina": SinaFinancialAdapter(),
 }
 
 _research_adapters = {
     "mock": MockResearchAdapter(),
     "em": EmResearchAdapter(),
+    "eastmoney": EastmoneyResearchAdapter(),
 }
 
 _constituent_adapters = {

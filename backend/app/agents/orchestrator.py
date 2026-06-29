@@ -8,6 +8,8 @@ from typing import Any, Callable
 from app.agents.bearcase_agent import run_bearcase_agent
 from app.agents.bottleneck_scout_agent import run_bottleneck_scout_agent
 from app.agents.candidate_fusion_agent import run_candidate_fusion_agent
+from app.agents.data_source_agent import run_data_source_agent
+from app.agents.data_source_pipeline import run_data_source_pipeline
 from app.agents.knowledge_ingest_agent import run_knowledge_ingest_agent
 from app.agents.monitor_watch_agent import run_monitor_watch_agent
 from app.agents.registry import get_agent_spec
@@ -16,6 +18,7 @@ from app.agents.sector_recommend_agent import run_sector_recommend_agent
 from app.agents.serenity_path_agent import run_serenity_path_agent
 from app.services.graph_store import get_store
 from app.services.sector_bootstrap import bootstrap_sector
+from app.services.ods_service import sync_all_ods_layers
 from app.services.workflow import WorkflowGateError, is_sector_confirmed, require_sector_confirmed
 
 DEFAULT_STEPS = [
@@ -120,6 +123,35 @@ def _step_monitor_watch(ctx: dict) -> dict:
     )
 
 
+def _step_data_source_fetch(ctx: dict) -> dict:
+    task = ctx.get("data_task") or "sector_scan"
+    return run_data_source_agent(
+        task=task,
+        stock_code=ctx.get("stock_code"),
+        sector_id=ctx["sector_id"],
+        sync_ods=bool(ctx.get("sync_ods")),
+        limit=int(ctx.get("data_limit") or 20),
+        operator=ctx.get("operator", "analyst"),
+    )
+
+
+def _step_data_source_ods_sync(ctx: dict) -> dict:
+    return sync_all_ods_layers(ctx["sector_id"])
+
+
+def _step_data_source_pipeline(ctx: dict) -> dict:
+    return run_data_source_pipeline(
+        ctx["sector_id"],
+        tasks=ctx.get("data_tasks"),
+        preset=ctx.get("data_preset"),
+        sync_ods=ctx.get("sync_ods"),
+        stock_code=ctx.get("stock_code"),
+        limit=int(ctx.get("data_limit") or 20),
+        operator=ctx.get("operator", "analyst"),
+        stop_on_error=bool(ctx.get("stop_on_error")),
+    )
+
+
 STEP_HANDLERS: dict[str, Callable[[dict], dict]] = {
     "sector_recommend": _step_sector_recommend,
     "sector_bootstrap": _step_sector_bootstrap,
@@ -130,6 +162,9 @@ STEP_HANDLERS: dict[str, Callable[[dict], dict]] = {
     "bear_case": _step_bear_case,
     "candidate_fusion": _step_candidate_fusion,
     "monitor_watch": _step_monitor_watch,
+    "data_source_fetch": _step_data_source_fetch,
+    "data_source_ods_sync": _step_data_source_ods_sync,
+    "data_source_pipeline": _step_data_source_pipeline,
 }
 
 
@@ -143,6 +178,13 @@ def run_invest_research_orchestrator(
     steps: list[str] | None = None,
     operator: str = "analyst",
     stop_on_gate: bool = False,
+    data_task: str | None = None,
+    data_tasks: list[str] | None = None,
+    data_preset: str | None = None,
+    sync_ods: bool = False,
+    data_limit: int = 20,
+    stock_code: str | None = None,
+    stop_on_error: bool = False,
 ) -> dict:
     step_names = steps or DEFAULT_STEPS
     store = get_store()
@@ -159,6 +201,13 @@ def run_invest_research_orchestrator(
         "source_ref": source_ref,
         "mode": mode,
         "operator": operator,
+        "data_task": data_task,
+        "data_tasks": data_tasks,
+        "data_preset": data_preset,
+        "sync_ods": sync_ods,
+        "data_limit": data_limit,
+        "stock_code": stock_code,
+        "stop_on_error": stop_on_error,
     }
 
     results: list[dict] = []

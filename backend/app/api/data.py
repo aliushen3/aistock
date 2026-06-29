@@ -1,6 +1,13 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from app.adapters.registry import list_adapters
+from app.services.a_share_data_source import (
+    AShareDataError,
+    fetch_layer_data,
+    list_seven_layer_capabilities,
+    route_task_to_layers,
+)
 from app.services.graph_store import get_store
 from app.services.graph_ingest import ontology_company_stats, sync_constituents
 from app.services.ods_service import (
@@ -9,10 +16,55 @@ from app.services.ods_service import (
     sync_external_reports,
     sync_financials,
     sync_industry_metrics,
+    sync_layer_to_ods,
     sync_market_daily,
 )
 
 router = APIRouter(prefix="/data", tags=["data"])
+
+
+class SevenLayerFetchRequest(BaseModel):
+    layer: str
+    stock_code: str | None = None
+    limit: int = Field(20, ge=1, le=100)
+
+
+class SevenLayerSyncRequest(BaseModel):
+    layer: str
+    sector_id: str
+
+
+@router.get("/seven-layer/capabilities")
+def get_seven_layer_capabilities():
+    return {"items": list_seven_layer_capabilities(), "layer_count": 7}
+
+
+@router.post("/seven-layer/fetch")
+def post_seven_layer_fetch(req: SevenLayerFetchRequest):
+    try:
+        return fetch_layer_data(req.layer, stock_code=req.stock_code, limit=req.limit)
+    except AShareDataError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/seven-layer/route/{task}")
+def get_seven_layer_route(task: str):
+    try:
+        layers = route_task_to_layers(task)
+        caps = [c for c in list_seven_layer_capabilities() if c["layer"] in layers]
+        return {"task": task, "layers": layers, "capabilities": caps}
+    except AShareDataError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/seven-layer/sync")
+def post_seven_layer_sync(req: SevenLayerSyncRequest):
+    if get_store().get_sector(req.sector_id) is None:
+        raise HTTPException(status_code=404, detail="赛道不存在")
+    try:
+        return sync_layer_to_ods(req.layer, req.sector_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/adapters")

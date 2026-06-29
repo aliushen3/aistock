@@ -11,6 +11,7 @@ from app.services.ods_service import ods_stats
 from app.services.vector_store import get_vector_backend_info, is_qdrant_available
 from app.adapters.registry import list_adapters
 from app.config import LOAD_DEMO_SEED
+from app.services.a_share_data_source import list_seven_layer_capabilities
 
 router = APIRouter(tags=["health"])
 
@@ -40,5 +41,9 @@ def health_check():
             "ontology_companies": ontology_company_stats(),
             "data_adapter": __import__("app.config", fromlist=["DATA_ADAPTER"]).DATA_ADAPTER,
             "data_adapters": list_adapters(),
+            "seven_layer": {
+                "layer_count": 7,
+                "capabilities": list_seven_layer_capabilities(),
+            },
         },
     }

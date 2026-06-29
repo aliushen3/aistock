@@ -26,6 +26,7 @@ from app.db.models import (
 )
 from app.db.session import SessionLocal
 from app.ontology import pg_store
+from app.services.graph_store import get_store
 
 METRICS_SEED = Path(__file__).resolve().parents[1] / "data" / "seed_metrics.json"
 
@@ -268,6 +269,50 @@ def sync_external_reports(stock_codes: list[str], adapter_name: str | None = Non
         return {"status": "ok", "adapter": adapter.name, "count": upserted}
     finally:
         db.close()
+
+
+_LAYER_ODS_SYNC = {
+    "market": ("sync_market_daily", "tencent"),
+    "research": ("sync_external_reports", "eastmoney"),
+    "fundamental": ("sync_financials", "sina"),
+    "announcement": ("sync_announcements", "cninfo_direct"),
+}
+
+
+def sync_layer_to_ods(layer: str, sector_id: str) -> dict:
+    """将 ODS 就绪层通过七层直连适配器同步入库。"""
+    layer = (layer or "").lower()
+    spec = _LAYER_ODS_SYNC.get(layer)
+    if spec is None:
+        raise ValueError(f"层 {layer} 不支持 ODS 同步")
+    fn_name, adapter_name = spec
+    store_fn = globals()[fn_name]
+    codes = list(get_store().companies.keys())
+    if not codes:
+        return {"status": "skipped", "reason": "no_companies", "layer": layer}
+    result = store_fn(codes, adapter_name=adapter_name)
+    result["layer"] = layer
+    result["sector_id"] = sector_id
+    return result
+
+
+def sync_all_ods_layers(sector_id: str) -> dict:
+    """按七层架构顺序同步全部 ODS 就绪层（market/research/fundamental/announcement）。"""
+    if get_store().get_sector(sector_id) is None:
+        raise ValueError(f"赛道不存在: {sector_id}")
+    layers = list(_LAYER_ODS_SYNC.keys())
+    results: dict[str, dict] = {}
+    for layer in layers:
+        results[layer] = sync_layer_to_ods(layer, sector_id)
+    ok = sum(1 for r in results.values() if r.get("status") == "ok")
+    skipped = sum(1 for r in results.values() if r.get("status") == "skipped")
+    return {
+        "status": "ok" if ok else ("skipped" if skipped else "partial"),
+        "sector_id": sector_id,
+        "layers_synced": ok,
+        "layers_skipped": skipped,
+        "results": results,
+    }
 
 
 def list_ods_industry_metrics(sector_id: str) -> list[dict]:

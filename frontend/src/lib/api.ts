@@ -310,6 +310,58 @@ export const syncSectorReports = (sectorId: string, adapter?: string) =>
 export const ingestSectorReports = (sectorId: string) =>
   api.post(`/data/reports/${sectorId}/ingest`).then((r) => r.data);
 
+export interface SevenLayerCapability {
+  layer: string;
+  label: string;
+  sources: string[];
+  operations: string[];
+  endpoint_count?: number;
+  ods_ready: boolean;
+  ods_adapter?: string;
+}
+
+export const getSevenLayerCapabilities = () =>
+  api
+    .get<{ items: SevenLayerCapability[]; layer_count: number }>("/data/seven-layer/capabilities")
+    .then((r) => r.data);
+
+export const fetchSevenLayerData = (body: { layer: string; stock_code?: string; limit?: number }) =>
+  api.post<Record<string, unknown>>("/data/seven-layer/fetch", body).then((r) => r.data);
+
+export const syncSevenLayerToOds = (body: { layer: string; sector_id: string }) =>
+  api.post<{ status: string; adapter?: string; count?: number }>("/data/seven-layer/sync", body).then((r) => r.data);
+
+export const runDataSourceFetchAgent = (body: {
+  task: string;
+  stock_code?: string;
+  sector_id?: string;
+  sync_ods?: boolean;
+  limit?: number;
+  operator?: string;
+}) => api.post<AgentRunSummary>("/agents/data-source-fetch/run", body).then((r) => r.data);
+
+export interface DataSourcePipelinePreset {
+  preset: string;
+  label: string;
+  description: string;
+  tasks?: string[];
+  sync_ods?: boolean;
+  steps?: string[];
+}
+
+export const getDataSourcePipelinePresets = () =>
+  api.get<{ items: DataSourcePipelinePreset[] }>("/agents/data-source-pipeline/presets").then((r) => r.data);
+
+export const runDataSourcePipeline = (body: {
+  sector_id: string;
+  preset?: string;
+  tasks?: string[];
+  sync_ods?: boolean;
+  stock_code?: string;
+  limit?: number;
+  stop_on_error?: boolean;
+}) => api.post<AgentRunSummary>("/agents/data-source-pipeline/run", body).then((r) => r.data);
+
 export const runKnowledgeIngestAgent = (body: {
   sector_id: string;
   source_ref: string;
@@ -340,6 +392,13 @@ export const runOrchestrator = (body: {
   mode?: string;
   steps?: string[];
   stop_on_gate?: boolean;
+  data_task?: string;
+  data_tasks?: string[];
+  data_preset?: string;
+  sync_ods?: boolean;
+  data_limit?: number;
+  stock_code?: string;
+  stop_on_error?: boolean;
 }) => api.post<AgentRunSummary>("/agents/orchestrator/run", body).then((r) => r.data);
 
 export const getBottleneckRecommendations = (sectorId?: string, status?: string) =>

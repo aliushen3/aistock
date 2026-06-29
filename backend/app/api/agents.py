@@ -5,6 +5,8 @@ from app.agents.registry import enrich_agent_response, list_agent_matrix
 from app.agents.bearcase_agent import run_bearcase_agent
 from app.agents.bottleneck_scout_agent import run_bottleneck_scout_agent
 from app.agents.candidate_fusion_agent import run_candidate_fusion_agent
+from app.agents.data_source_agent import run_data_source_agent
+from app.agents.data_source_pipeline import list_data_source_pipeline_presets, run_data_source_pipeline
 from app.agents.knowledge_ingest_agent import run_knowledge_ingest_agent
 from app.agents.monitor_watch_agent import run_monitor_watch_agent
 from app.agents.orchestrator import run_invest_research_orchestrator
@@ -55,6 +57,13 @@ class OrchestratorRequest(BaseModel):
     steps: list[str] | None = None
     stop_on_gate: bool = False
     operator: str = "analyst"
+    data_task: str | None = Field(None, description="data_source_fetch 步骤任务类型")
+    data_tasks: list[str] | None = Field(None, description="data_source_pipeline 多任务列表")
+    data_preset: str | None = Field(None, description="sector_scan|ods_warmup|full_collection|valuation_pass")
+    sync_ods: bool = False
+    data_limit: int = Field(20, ge=1, le=100)
+    stock_code: str | None = None
+    stop_on_error: bool = False
 
 
 class SerenityPathRequest(BaseModel):
@@ -84,6 +93,30 @@ class MonitorWatchRequest(BaseModel):
 class BearCaseRequest(BaseModel):
     sector_id: str
     mode: str = "fusion"
+    operator: str = "analyst"
+
+
+class DataSourceFetchRequest(BaseModel):
+    task: str = Field(
+        "valuation",
+        description="valuation|quote|research|signal|news|fundamental|announcement|sector_scan",
+    )
+    stock_code: str | None = None
+    stock_codes: list[str] | None = None
+    sector_id: str | None = None
+    sync_ods: bool = False
+    limit: int = Field(20, ge=1, le=100)
+    operator: str = "analyst"
+
+
+class DataSourcePipelineRequest(BaseModel):
+    sector_id: str
+    preset: str | None = Field(None, description="sector_scan|ods_warmup|full_collection|valuation_pass")
+    tasks: list[str] | None = None
+    sync_ods: bool | None = None
+    stock_code: str | None = None
+    limit: int = Field(20, ge=1, le=100)
+    stop_on_error: bool = False
     operator: str = "analyst"
 
 
@@ -174,6 +207,13 @@ def run_orchestrator(req: OrchestratorRequest):
                 steps=req.steps,
                 operator=req.operator,
                 stop_on_gate=req.stop_on_gate,
+                data_task=req.data_task,
+                data_tasks=req.data_tasks,
+                data_preset=req.data_preset,
+                sync_ods=req.sync_ods,
+                data_limit=req.data_limit,
+                stock_code=req.stock_code,
+                stop_on_error=req.stop_on_error,
             ),
         )
     except ValueError as e:
@@ -273,6 +313,52 @@ def run_monitor_watch(req: MonitorWatchRequest):
             operator=req.operator,
         ),
     )
+
+
+@router.post("/data-source-fetch/run")
+def run_data_source_fetch(req: DataSourceFetchRequest):
+    """数据源获取智能体：七层任务路由 + 分层拉取 + 可选 ODS 同步。"""
+    try:
+        return enrich_agent_response(
+            "data_source_fetch",
+            run_data_source_agent(
+                task=req.task,
+                stock_code=req.stock_code,
+                stock_codes=req.stock_codes,
+                sector_id=req.sector_id,
+                sync_ods=req.sync_ods,
+                limit=req.limit,
+                operator=req.operator,
+            ),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/data-source-pipeline/presets")
+def get_data_source_pipeline_presets():
+    return {"items": list_data_source_pipeline_presets()}
+
+
+@router.post("/data-source-pipeline/run")
+def run_data_source_pipeline_api(req: DataSourcePipelineRequest):
+    """七层数据源采集 Pipeline：多任务顺序执行 + 可选 ODS 全层同步。"""
+    try:
+        return enrich_agent_response(
+            "data_source_pipeline",
+            run_data_source_pipeline(
+                req.sector_id,
+                tasks=req.tasks,
+                preset=req.preset,
+                sync_ods=req.sync_ods,
+                stock_code=req.stock_code,
+                limit=req.limit,
+                operator=req.operator,
+                stop_on_error=req.stop_on_error,
+            ),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/sector-recommendations")

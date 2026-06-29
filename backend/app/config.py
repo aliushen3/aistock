@@ -34,12 +34,13 @@ USE_NEO4J_TRAVERSAL = os.getenv("USE_NEO4J_TRAVERSAL", "auto").lower()
 # 数据接入适配器（按类型拆分）
 # market: mock | akshare | tushare | auto（auto: tushare 主 → akshare 备）
 DATA_ADAPTER = os.getenv("DATA_ADAPTER", "mock")
+# market: mock | akshare | tushare | tencent | auto（auto: tushare → tencent → akshare）
 DATA_ADAPTER_MARKET = os.getenv("DATA_ADAPTER_MARKET", "mock")
 DATA_ADAPTER_ANNOUNCEMENT = os.getenv("DATA_ADAPTER_ANNOUNCEMENT", "mock")
 DATA_ADAPTER_METRICS = os.getenv("DATA_ADAPTER_METRICS", "mock")
-# financial: mock | tushare（需 2000 积分）
+# financial: mock | tushare | sina（新浪财报三表直连）
 DATA_ADAPTER_FINANCIAL = os.getenv("DATA_ADAPTER_FINANCIAL", "mock")
-# research: mock | em（AkShare 东财研报，免费）
+# research: mock | em | eastmoney（东财 reportapi 直连）
 DATA_ADAPTER_RESEARCH = os.getenv("DATA_ADAPTER_RESEARCH", "mock")
 # constituent: mock | akshare（板块/概念成分股 → OntCompany 真实代码）
 DATA_ADAPTER_CONSTITUENT = os.getenv("DATA_ADAPTER_CONSTITUENT", "mock")

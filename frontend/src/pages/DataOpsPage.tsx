@@ -2,18 +2,24 @@ import { useEffect, useState } from "react";
 import { App as AntApp, Button, Card, Col, Descriptions, Row, Space, Statistic, Table, Tag, Typography } from "antd";
 import { useSector } from "../lib/sectorContext";
 import {
+  fetchSevenLayerData,
   getDataAdapters,
   getHealth,
   getOdsStats,
+  getSevenLayerCapabilities,
   ingestSectorReports,
+  runDataSourcePipeline,
+  runDataSourceFetchAgent,
   syncSectorAnnouncements,
   syncSectorConstituents,
   syncSectorFinancials,
   syncSectorMarket,
   syncSectorMetrics,
   syncSectorReports,
+  syncSevenLayerToOds,
   type DataAdapterInfo,
   type OdsStats,
+  type SevenLayerCapability,
 } from "../lib/api";
 
 interface SyncResult {
@@ -40,12 +46,15 @@ export default function DataOpsPage() {
   const [components, setComponents] = useState<Record<string, unknown>>({});
   const [adapters, setAdapters] = useState<DataAdapterInfo[]>([]);
   const [odsStats, setOdsStats] = useState<OdsStats | null>(null);
+  const [sevenLayers, setSevenLayers] = useState<SevenLayerCapability[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [previewLayer, setPreviewLayer] = useState<string | null>(null);
 
   const load = () => {
     getHealth().then((h) => setComponents(h.components || {}));
     getDataAdapters().then((d) => setAdapters(d.items));
     getOdsStats().then(setOdsStats);
+    getSevenLayerCapabilities().then((d) => setSevenLayers(d.items));
   };
 
   useEffect(() => {
@@ -89,12 +98,157 @@ export default function DataOpsPage() {
     { key: "ingest", label: "研报标题抽取草案", fn: () => ingestSectorReports(sectorId) },
   ];
 
+  const previewLayerData = async (layer: string) => {
+    setPreviewLayer(layer);
+    try {
+      const data = await fetchSevenLayerData({ layer, limit: 5 });
+      const keys = Object.keys(data).slice(0, 4).join(", ");
+      message.success(`${layer} 层预览成功（字段: ${keys}）`);
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || "预览失败");
+    } finally {
+      setPreviewLayer(null);
+    }
+  };
+
+  const runAgentFetch = async (task: string) => {
+    setBusyKey(`agent-${task}`);
+    try {
+      const r = await runDataSourceFetchAgent({
+        task,
+        sector_id: sectorId || undefined,
+        limit: 10,
+      });
+      message.success(r.agent_summary || "数据源智能体执行完成");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || "智能体执行失败");
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   return (
     <div>
       <Typography.Title level={3}>系统与数据</Typography.Title>
       <Typography.Paragraph type="secondary">
         数据源采集与基础设施状态，面向管理员 / 数据运维。采集结果写入本地 ODS，业务页面仅读取本地库。
       </Typography.Paragraph>
+
+      <Card
+        size="small"
+        title="A 股七层数据架构"
+        style={{ marginBottom: 16 }}
+        extra={<Tag color="blue">{sevenLayers.length} 层 · stockdata skill</Tag>}
+      >
+        <Table
+          size="small"
+          rowKey="layer"
+          pagination={false}
+          dataSource={sevenLayers}
+          columns={[
+            { title: "层", dataIndex: "layer", width: 120 },
+            { title: "名称", dataIndex: "label", width: 100 },
+            {
+              title: "数据源",
+              dataIndex: "sources",
+              render: (v: string[]) => v.map((s) => <Tag key={s}>{s}</Tag>),
+            },
+            {
+              title: "ODS",
+              dataIndex: "ods_ready",
+              width: 80,
+              render: (v: boolean) => (v ? <Tag color="green">就绪</Tag> : <Tag>预览</Tag>),
+            },
+            {
+              title: "操作",
+              width: 180,
+              render: (_: unknown, row: SevenLayerCapability) => (
+                <Space>
+                  <Button
+                    size="small"
+                    loading={previewLayer === row.layer}
+                    onClick={() => previewLayerData(row.layer)}
+                  >
+                    预览
+                  </Button>
+                  {row.ods_ready && sectorId && (
+                    <Button
+                      size="small"
+                      disabled={busyKey === `ods-${row.layer}`}
+                      loading={busyKey === `ods-${row.layer}`}
+                      onClick={() =>
+                        runSync(`ods-${row.layer}`, `${row.label} ODS`, () =>
+                          syncSevenLayerToOds({ layer: row.layer, sector_id: sectorId })
+                        )
+                      }
+                    >
+                      同步 ODS
+                    </Button>
+                  )}
+                </Space>
+              ),
+            },
+          ]}
+        />
+        <Space wrap style={{ marginTop: 12 }}>
+          <Typography.Text type="secondary">数据源 Pipeline：</Typography.Text>
+          <Button
+            type="primary"
+            loading={busyKey === "pipeline-full"}
+            disabled={!sectorId}
+            onClick={async () => {
+              if (!sectorId) return;
+              setBusyKey("pipeline-full");
+              try {
+                const r = await runDataSourcePipeline({ sector_id: sectorId, preset: "full_collection" });
+                message.success(r.agent_summary || "Pipeline 完成");
+              } catch (e: unknown) {
+                const err = e as { response?: { data?: { detail?: string } } };
+                message.error(err.response?.data?.detail || "Pipeline 失败");
+              } finally {
+                setBusyKey(null);
+                load();
+              }
+            }}
+          >
+            全量采集 Pipeline
+          </Button>
+          <Button
+            loading={busyKey === "pipeline-ods"}
+            disabled={!sectorId}
+            onClick={async () => {
+              if (!sectorId) return;
+              setBusyKey("pipeline-ods");
+              try {
+                const r = await runDataSourcePipeline({ sector_id: sectorId, preset: "ods_warmup" });
+                message.success(r.agent_summary || "ODS 同步完成");
+              } catch (e: unknown) {
+                const err = e as { response?: { data?: { detail?: string } } };
+                message.error(err.response?.data?.detail || "ODS Pipeline 失败");
+              } finally {
+                setBusyKey(null);
+                load();
+              }
+            }}
+          >
+            ODS 四层入库
+          </Button>
+        </Space>
+        <Space wrap style={{ marginTop: 12 }}>
+          <Typography.Text type="secondary">单任务智能体：</Typography.Text>
+          <Button loading={busyKey === "agent-sector_scan"} onClick={() => runAgentFetch("sector_scan")}>
+            赛道扫描
+          </Button>
+          <Button loading={busyKey === "agent-signal"} onClick={() => runAgentFetch("signal")}>
+            信号层
+          </Button>
+          <Button loading={busyKey === "agent-news"} onClick={() => runAgentFetch("news")}>
+            新闻层
+          </Button>
+        </Space>
+      </Card>
 
       <Card
         size="small"
@@ -207,7 +361,7 @@ export default function DataOpsPage() {
       <Card size="small" title="基础设施状态">
         <Descriptions size="small" column={1} bordered>
           {Object.entries(components)
-            .filter(([k]) => k !== "data_adapters")
+            .filter(([k]) => k !== "data_adapters" && k !== "seven_layer")
             .map(([k, v]) => (
               <Descriptions.Item key={k} label={k}>
                 <Tag color={v === true || v === "neo4j" ? "green" : typeof v === "object" ? "blue" : "default"}>

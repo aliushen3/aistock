@@ -105,6 +105,26 @@ AGENT_MATRIX: dict[str, dict[str, Any]] = {
         "proposal": "PipelineRun",
         "action": None,
     },
+    "data_source_fetch": {
+        "display_name": "DataSourceFetchAgent",
+        "agent_class": "B",
+        "runtime": "pipeline",
+        "llm_required": False,
+        "llm_assisted_default": False,
+        "invest_step": "数据采集",
+        "proposal": "LayerFetchResult",
+        "action": None,
+    },
+    "data_source_pipeline": {
+        "display_name": "DataSourcePipeline",
+        "agent_class": "B",
+        "runtime": "pipeline",
+        "llm_required": False,
+        "llm_assisted_default": False,
+        "invest_step": "数据采集 Pipeline",
+        "proposal": "PipelineRun",
+        "action": None,
+    },
 }
 
 
