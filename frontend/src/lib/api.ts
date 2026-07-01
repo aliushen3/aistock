@@ -432,6 +432,7 @@ export const runSectorRecommendAgent = (body: {
   focus?: string;
   query?: string;
   max_recommendations?: number;
+  force_cold_start?: boolean;
 }) => api.post<SectorRecommendRunResult>("/agents/sector-recommend/run", body).then((r) => r.data);
 
 export const getSectorRecommendations = (status?: string) =>

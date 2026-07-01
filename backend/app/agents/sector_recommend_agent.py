@@ -67,7 +67,7 @@ def _count_keyword_hits(text: str, keywords: list[str]) -> int:
     return sum(1 for k in keywords if k in text)
 
 
-def _rule_recommend(context: dict, max_items: int = 5) -> dict:
+def _rule_recommend(context: dict, max_items: int = 5, force_cold_start: bool = False) -> dict:
     existing = {s["id"]: s for s in context["existing_sectors"]}
     metrics_by_id = {m["sector_id"]: m for m in context["metrics_signals"]}
     evidence_text = " ".join(
@@ -90,6 +90,8 @@ def _rule_recommend(context: dict, max_items: int = 5) -> dict:
         capex = metrics.get("sector_capex_yoy") if metrics else None
 
         score = 0.3
+        if watch.get("source") == "focus":
+            score += 0.15
         if watch.get("source") in ("report", "report_llm", "report_rule"):
             score += 0.15
         signals: dict[str, Any] = {
@@ -137,11 +139,22 @@ def _rule_recommend(context: dict, max_items: int = 5) -> dict:
 
     recs.sort(key=lambda x: -x["beta_score"])
 
+    # 冷启动触发：显式 force（“冷启动扫描”按钮）或规则未产出任何候选时兜底。
+    # 注意：不再要求“无已有赛道”，否则采纳首个赛道后综合排序将永远无法再触发。
     cold_start_used = False
-    if not recs:
+    if force_cold_start or not recs:
+        if not context.get("cold_start_signals"):
+            from app.agents.sector_agent_tools import tool_cold_start_industry_signals
+
+            context["cold_start_signals"] = tool_cold_start_industry_signals()
         cold_recs = _cold_start_recommendations(context, max_items)
         if cold_recs:
-            recs = cold_recs
+            if force_cold_start and recs:
+                # 强制模式：综合排序候选优先，去重合并原规则候选
+                cold_names = {c["sector_name"] for c in cold_recs}
+                recs = cold_recs + [r for r in recs if r["sector_name"] not in cold_names]
+            else:
+                recs = cold_recs
             cold_start_used = True
 
     theme_count = len(context.get("report_themes", {}).get("themes", []))
@@ -150,9 +163,10 @@ def _rule_recommend(context: dict, max_items: int = 5) -> dict:
         f"证据 {len(context['evidence_hits'])} 条，推荐 {len(recs[:max_items])} 个赛道"
     )
     if cold_start_used:
+        period = (context.get("cold_start_signals") or {}).get("ranking_period") or "多日"
         summary = (
-            f"冷启动扫描：无存量赛道/研报证据，基于东财行业轮动与同花顺热点"
-            f"生成 {len(recs[:max_items])} 个待验证候选赛道"
+            f"冷启动扫描：按 {period} 累计涨幅 + 主力资金净流入 + 同花顺题材热度综合排序，"
+            f"生成 {len(recs[:max_items])} 个待验证候选赛道（需研究员补全拓扑）"
         )
     return {
         "agent_summary": summary,
@@ -161,11 +175,20 @@ def _rule_recommend(context: dict, max_items: int = 5) -> dict:
     }
 
 
+def _format_net_inflow(net_inflow: float | None, period: str) -> str:
+    if net_inflow is None:
+        return ""
+    if abs(net_inflow) >= 1e8:
+        return f"，{period}主力净流入 {net_inflow / 1e8:.2f} 亿"
+    return f"，{period}主力净流入 {net_inflow / 1e4:.0f} 万"
+
+
 def _cold_start_recommendations(context: dict, max_items: int) -> list[dict]:
-    """空图冷启动：用行业轮动排名 + 热点题材生成待验证候选赛道。"""
+    """空图冷启动：行业板块综合排序（多日涨幅+资金净流入+题材热度加权）生成候选。"""
     cold = context.get("cold_start_signals") or {}
     ranking = cold.get("industry_ranking") or []
     hot_themes = cold.get("hot_themes") or []
+    period = cold.get("ranking_period") or "近期"
     theme_text = "、".join(
         f"{t.get('name')}（{t.get('reason')}）" for t in hot_themes[:3] if t.get("name")
     )
@@ -177,25 +200,33 @@ def _cold_start_recommendations(context: dict, max_items: int) -> list[dict]:
         if not name or name in seen:
             continue
         seen.add(name)
+        composite = float(row.get("composite_score") or 0.0)
         change_pct = row.get("change_pct")
-        leader = row.get("leader") or ""
+        net_inflow = row.get("main_net_inflow")
+        theme_hits = int(row.get("theme_hits") or 0)
+        # 综合分映射到 0.30~0.60；命中热点题材再 +0.05，体现题材加权
+        beta_score = round(min(0.6, 0.3 + 0.3 * composite + (0.05 if theme_hits > 0 else 0.0)), 2)
+
         rationale = (
-            f"冷启动候选：东财行业板块「{name}」近日涨幅 {change_pct}%"
-            + (f"，领涨 {leader}" if leader else "")
-            + (f"；当日热点：{theme_text}" if theme_text else "")
-            + "。无存量证据，须研究员补全产业链拓扑后再确认。"
+            f"冷启动候选：行业板块「{name}」综合评分 {composite:.2f}"
+            + (f"，{period}累计涨幅 {change_pct}%" if change_pct is not None else "")
+            + _format_net_inflow(net_inflow, period)
+            + (f"，命中当日热点题材 {theme_hits} 次" if theme_hits > 0 else "")
+            + (f"；当日主线：{theme_text}" if theme_text else "")
+            + "。按多日涨幅/资金净流入/题材热度综合排序，无存量证据，须研究员补全产业链拓扑后再确认。"
         )
         recs.append(
             {
                 "sector_name": name,
                 "sector_id": None,
                 "is_new": True,
-                "beta_score": 0.35,
+                "beta_score": beta_score,
                 "demand_growth_hint": None,
                 "signals": {
                     "demand_growth_ok": False,
-                    "capex_positive": False,
-                    "research_support_count": 0,
+                    "capex_positive": bool((net_inflow or 0) > 0),
+                    "research_support_count": theme_hits,
+                    "composite_score": round(composite, 3),
                 },
                 "rationale": rationale,
                 "terminal_products": [],
@@ -352,11 +383,12 @@ def run_sector_recommend_agent(
     query: str | None = None,
     max_recommendations: int = 5,
     operator: str = "analyst",
+    force_cold_start: bool = False,
 ) -> dict:
     run_id = f"run_{uuid.uuid4().hex[:12]}"
     context = build_agent_context(focus=focus, query=query)
 
-    result = _rule_recommend(context, max_items=max_recommendations)
+    result = _rule_recommend(context, max_items=max_recommendations, force_cold_start=force_cold_start)
     result["agent_mode"] = "pipeline_rule_v1"
     llm_assisted = False
 

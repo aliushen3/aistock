@@ -5,8 +5,8 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=aistock
-Group=aistock
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/aistock/backend
 EnvironmentFile=/opt/aistock/deploy/aistock.env
 ExecStart=/opt/aistock/backend/.venv/bin/celery -A app.celery_app.celery_app worker -l info

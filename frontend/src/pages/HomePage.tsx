@@ -112,6 +112,7 @@ export default function HomePage() {
 
   const pending = sectors.filter((s) => !isConfirmed(s) && s.status !== "rejected");
   const settled = sectors.filter((s) => isConfirmed(s) || s.status === "rejected");
+  const activeSectorName = sectors.find((s) => s.id === activeSectorId)?.name;
 
   const evidence = (s: Sector) => {
     const rec = recBySector(s.id);
@@ -162,9 +163,10 @@ export default function HomePage() {
 
   return (
     <div>
-      <Typography.Title level={3}>产业瓶颈 Alpha · 投研工作台</Typography.Title>
-      <Typography.Paragraph type="secondary">
-        发现赛道 → 研究员确认景气 → 图谱研判 → 候选入池 → 报告审核。机器辅助排序，决策由研究员把关。
+      <Typography.Title level={3} style={{ marginBottom: 4 }}>投研工作台</Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
+        发现景气赛道 → 研究员确认 → 产业研判 → 候选入池 → 报告审核。系统只做排序打分，
+        <Typography.Text strong>投研决策由你把关</Typography.Text>；评分仅供参考，不构成投资建议。
       </Typography.Paragraph>
 
       {sectors.length === 0 && (
@@ -172,23 +174,16 @@ export default function HomePage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="空图谱冷启动"
+          message="从这里开始：三步发现你的第一个赛道"
           description={
             <>
-              当前无已入库赛道（生产环境默认不灌 demo 种子）。请：① 在下方运行「赛道扫描」→ 采纳推荐；
-              ② 系统自动同步成分股并抽取研报草案；③ 在「知识抽取」确认拓扑后，再确认赛道景气。
+              ① 在下方 <strong>「发现景气赛道」</strong> 一键扫描（按主力资金 + 多日涨幅 + 题材热度排序）→
+              ② 从推荐里点 <strong>「采纳」</strong> 建立赛道 →
+              ③ 在 <strong>「待确认赛道」</strong> 填写理由并确认景气，即可解锁候选池与投研报告。
             </>
           }
         />
       )}
-
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="人工门控"
-        description="智能体只提出待确认赛道；须研究员确认景气后，才会生成候选池与投研报告。提示分仅供排序，不构成投资建议。"
-      />
 
       <WorkflowGuide />
 
@@ -201,24 +196,27 @@ export default function HomePage() {
       <Card size="small" title="观察焦点" style={{ marginBottom: 16 }}>
         <Space direction="vertical" style={{ width: "100%" }}>
           <Input
-            placeholder="关注方向（驱动观察清单与赛道扫描，如 AI算力 / 固态电池）"
+            placeholder="你想研究的方向，如 AI算力 / 固态电池 / 机器人（留空则按全市场资金与题材扫描）"
             value={agentFocus}
             onChange={(e) => setAgentFocus(e.target.value)}
+            allowClear
           />
           <Input.TextArea
             rows={2}
-            placeholder="补充研究问题（可选）"
+            placeholder="补充研究问题（可选），如「关注光模块环节的国产替代进度」"
             value={agentQuery}
             onChange={(e) => setAgentQuery(e.target.value)}
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            当前赛道 <Tag color="blue">{activeSectorId || "未选择"}</Tag> 由右上角全局选择器控制，点击观察清单某行可快速切换。
+            当前研究赛道：<Tag color="blue">{activeSectorName || "未选择"}</Tag>
+            可在右上角切换，或点击下方观察清单某行快速切换。
           </Typography.Text>
         </Space>
       </Card>
 
       <AgentConsole
         sectorId={activeSectorId}
+        sectorName={activeSectorName}
         focus={agentFocus}
         query={agentQuery}
         onFocusChange={setAgentFocus}
@@ -289,7 +287,15 @@ export default function HomePage() {
                 <Card title={s.name} extra={statusTag(s)} actions={cardActions(s)}>
                   <Space direction="vertical" size={4} style={{ width: "100%" }}>
                     <Typography.Text>需求增速提示：{s.demand_growth_hint ?? "—"}%</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>赛道 ID：{s.id}</Typography.Text>
+                    {isConfirmed(s) ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        已确认景气，可在候选池 / 报告中继续研判。
+                      </Typography.Text>
+                    ) : (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        已驳回，不进入后续流程。
+                      </Typography.Text>
+                    )}
                   </Space>
                 </Card>
               </Col>

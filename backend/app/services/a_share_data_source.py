@@ -692,6 +692,173 @@ def fetch_industry_comparison(top_n: int = 20) -> dict[str, Any]:
     }
 
 
+# 东财行业板块资金流榜字段映射（fs=m:90+t:2）
+# change=区间涨跌幅, netamt=区间主力净流入额(元), netpct=主力净占比(%)
+_EM_FUND_FLOW_PERIODS: dict[str, dict[str, str]] = {
+    "today": {"fid": "f62", "change": "f3", "netamt": "f62", "netpct": "f184"},
+    "5d": {"fid": "f164", "change": "f109", "netamt": "f164", "netpct": "f165"},
+    "10d": {"fid": "f174", "change": "f160", "netamt": "f174", "netpct": "f175"},
+}
+
+
+def fetch_industry_fund_flow(period: str = "today", top_n: int = 100) -> list[dict[str, Any]]:
+    """东财行业板块资金流榜：区间涨跌幅 + 主力净流入额 + 主力净占比。
+
+    period: today（当日）| 5d（近 5 日）| 10d（近 10 日）。按主力净流入降序返回。
+    """
+    cfg = _EM_FUND_FLOW_PERIODS.get(period)
+    if cfg is None:
+        raise AShareDataError(f"unsupported fund flow period: {period}")
+    field_list: list[str] = ["f12", "f14", "f2", "f3"]
+    for key in ("change", "netamt", "netpct"):
+        if cfg[key] not in field_list:
+            field_list.append(cfg[key])
+    resp = _em_get(
+        "https://push2.eastmoney.com/api/qt/clist/get",
+        params={
+            "pn": "1",
+            "pz": str(max(top_n, 1)),
+            "po": "1",
+            "np": "1",
+            "fltt": "2",
+            "invt": "2",
+            "fid": cfg["fid"],
+            "fs": "m:90+t:2",
+            "fields": ",".join(field_list),
+        },
+        headers={"Referer": "https://data.eastmoney.com/bkzj/hy.html"},
+    )
+    resp.raise_for_status()
+    diff = (resp.json().get("data") or {}).get("diff") or []
+    items = list(diff.values()) if isinstance(diff, dict) else diff
+    rows: list[dict[str, Any]] = []
+    # 东财 m:90+t:2 会返回多级板块（如“证券Ⅱ/证券Ⅲ”数值完全相同），按数值签名去重
+    seen_sig: set[tuple] = set()
+    for item in items:
+        change_pct = _safe_float(item.get(cfg["change"]))
+        main_net_inflow = _safe_float(item.get(cfg["netamt"]))
+        main_net_pct = _safe_float(item.get(cfg["netpct"]))
+        sig = (change_pct, main_net_inflow, main_net_pct)
+        if sig in seen_sig:
+            continue
+        seen_sig.add(sig)
+        rows.append(
+            {
+                "code": item.get("f12", ""),
+                "name": item.get("f14", ""),
+                "change_pct": change_pct,
+                "main_net_inflow": main_net_inflow,
+                "main_net_pct": main_net_pct,
+            }
+        )
+    return rows[:top_n]
+
+
+# 冷启动综合排序权重（多日涨幅 / 资金净流入 / 题材热度）与题材命中加权系数
+COLD_START_RANK_WEIGHTS: dict[str, float] = {"momentum": 0.4, "capital": 0.35, "theme": 0.25}
+COLD_START_THEME_BOOST = 0.15
+
+
+def _minmax_norm(values: list[float]) -> list[float]:
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi - lo <= 1e-9:
+        return [0.0 for _ in values]
+    return [(v - lo) / (hi - lo) for v in values]
+
+
+def _theme_heat_for_boards(board_names: list[str], hot_themes: list[dict[str, Any]]) -> dict[str, int]:
+    """用同花顺热点题材文本对板块名做子串命中计数，作为题材热度。"""
+    blob = " ".join(f"{t.get('name', '')} {t.get('reason', '')}" for t in hot_themes)
+    heat: dict[str, int] = {}
+    for name in board_names:
+        core = (name or "").replace("Ⅱ", "").replace("Ⅲ", "").replace("板块", "").strip()
+        count = 0
+        if core:
+            count = blob.count(core)
+            if count == 0 and len(core) >= 3:
+                count = blob.count(core[:2])
+        heat[name] = count
+    return heat
+
+
+def rank_industry_boards(top_n: int = 8) -> dict[str, Any]:
+    """行业板块综合排序：多日累计涨幅 + 资金净流入 + 同花顺题材热度加权。
+
+    - 主数据源：东财 5 日行业板块资金流榜（失败回退当日榜）
+    - 加权：命中同花顺当日热点题材的板块，综合分乘以 (1 + boost)
+    - 任一外部源失败均安全降级，不阻断赛道推荐主流程
+    """
+    boards: list[dict[str, Any]] = []
+    period_used = "5d"
+    try:
+        boards = fetch_industry_fund_flow(period="5d", top_n=100)
+    except Exception:  # noqa: BLE001 网络/风控失败时降级
+        boards = []
+    if not boards:
+        period_used = "today"
+        try:
+            boards = fetch_industry_fund_flow(period="today", top_n=100)
+        except Exception:  # noqa: BLE001
+            boards = []
+
+    hot_themes: list[dict[str, Any]] = []
+    try:
+        hot_themes = [
+            {"name": h.get("name"), "reason": h.get("reason"), "change_pct": h.get("change_pct")}
+            for h in fetch_ths_hot_reason()
+            if h.get("reason")
+        ]
+    except Exception:  # noqa: BLE001
+        hot_themes = []
+
+    if not boards:
+        return {"period": period_used, "ranking": [], "hot_themes": hot_themes, "weights": COLD_START_RANK_WEIGHTS}
+
+    names = [b["name"] for b in boards]
+    heat = _theme_heat_for_boards(names, hot_themes)
+
+    m_norm = _minmax_norm([b.get("change_pct") or 0.0 for b in boards])
+    c_norm = _minmax_norm([b.get("main_net_inflow") or 0.0 for b in boards])
+    theme_raw = [float(heat.get(b["name"], 0)) for b in boards]
+    t_norm = _minmax_norm(theme_raw)
+
+    w = COLD_START_RANK_WEIGHTS
+    scored: list[dict[str, Any]] = []
+    for i, b in enumerate(boards):
+        composite = w["momentum"] * m_norm[i] + w["capital"] * c_norm[i] + w["theme"] * t_norm[i]
+        theme_hit = theme_raw[i] > 0
+        if theme_hit:
+            composite *= 1.0 + COLD_START_THEME_BOOST
+        scored.append(
+            {
+                "name": b["name"],
+                "code": b["code"],
+                "change_pct": b.get("change_pct"),
+                "main_net_inflow": b.get("main_net_inflow"),
+                "main_net_pct": b.get("main_net_pct"),
+                "theme_hits": int(theme_raw[i]),
+                "theme_boosted": theme_hit,
+                "composite_score": round(composite, 4),
+                "score_breakdown": {
+                    "momentum": round(m_norm[i], 3),
+                    "capital": round(c_norm[i], 3),
+                    "theme": round(t_norm[i], 3),
+                },
+            }
+        )
+    scored.sort(key=lambda x: -x["composite_score"])
+    for idx, row in enumerate(scored):
+        row["rank"] = idx + 1
+    return {
+        "period": period_used,
+        "ranking": scored[:top_n],
+        "hot_themes": hot_themes,
+        "weights": w,
+    }
+
+
 def fetch_daily_dragon_tiger(trade_date: str | None = None, min_net_buy: float | None = None) -> dict[str, Any]:
     if trade_date is None:
         trade_date = time.strftime("%Y-%m-%d")

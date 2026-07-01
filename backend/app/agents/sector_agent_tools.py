@@ -114,30 +114,32 @@ def tool_get_beta_criteria() -> dict:
     return BETA_CRITERIA
 
 
+def watchlist_needs_cold_start(watchlist: list[dict]) -> bool:
+    """空图时：无观察项，或仅有用户 focus 且无证据时，需拉行业轮动/热点做冷启动。"""
+    if not watchlist:
+        return True
+    return all(
+        item.get("source") == "focus" and not item.get("evidence_refs")
+        for item in watchlist
+    )
+
+
 def tool_cold_start_industry_signals(top_n: int = 8) -> dict:
-    """冷启动证据源：从七层信号层拉行业轮动 + 当日热点题材。
+    """冷启动证据源：行业板块综合排序（多日涨幅+资金净流入+题材热度加权）。
 
     直连东财/同花顺，任一源失败均安全降级为空，不阻断赛道推荐主流程。
+    输出兼容旧结构：industry_ranking（已综合排序）+ hot_themes。
     """
-    from app.services.a_share_data_source import (
-        fetch_industry_comparison,
-        fetch_ths_hot_reason,
-    )
+    from app.services.a_share_data_source import rank_industry_boards
 
     out: dict[str, Any] = {"industry_ranking": [], "hot_themes": []}
     try:
-        ranking = fetch_industry_comparison(top_n=top_n)
-        out["industry_ranking"] = ranking.get("top", [])[:top_n]
+        ranked = rank_industry_boards(top_n=top_n)
+        out["industry_ranking"] = ranked.get("ranking", [])
+        out["hot_themes"] = ranked.get("hot_themes", [])
+        out["ranking_period"] = ranked.get("period")
+        out["ranking_weights"] = ranked.get("weights")
     except Exception:  # noqa: BLE001 网络/风控失败时降级
-        pass
-    try:
-        hot = fetch_ths_hot_reason()
-        out["hot_themes"] = [
-            {"name": h.get("name"), "reason": h.get("reason"), "change_pct": h.get("change_pct")}
-            for h in hot[:top_n]
-            if h.get("reason")
-        ]
-    except Exception:  # noqa: BLE001
         pass
     return out
 
@@ -185,7 +187,7 @@ def build_agent_context(focus: str | None = None, query: str | None = None) -> d
         "report_themes": watchlist_payload["report_themes"],
         "evidence_hits": tool_search_research_evidence(search_q, top_k=10),
     }
-    # 冷启动：空图且观察清单为空时，用信号层行业轮动/热点提供候选证据
-    if not existing_sectors and not watchlist:
+    # 冷启动：空图且观察清单无有效证据时，用信号层行业轮动/热点提供候选
+    if not existing_sectors and watchlist_needs_cold_start(watchlist):
         context["cold_start_signals"] = tool_cold_start_industry_signals()
     return context

@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   App as AntApp,
   Alert,
   Button,
   Card,
+  Empty,
   Input,
   List,
   Space,
@@ -36,13 +37,71 @@ import {
 
 interface Props {
   sectorId: string;
+  sectorName?: string;
   focus: string;
   query: string;
   onFocusChange?: (focus: string) => void;
   onReload?: () => void;
 }
 
-export default function AgentConsole({ sectorId, focus, query, onFocusChange, onReload }: Props) {
+function SectorRecommendationList({
+  items,
+  onAdopt,
+  onDismiss,
+}: {
+  items: SectorRecommendation[];
+  onAdopt: (rec: SectorRecommendation) => void;
+  onDismiss: (recId: string) => void;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <List
+      size="small"
+      bordered
+      header={
+        <Space>
+          <Typography.Text strong>待采纳赛道（按景气分排序）</Typography.Text>
+          <Tag color="blue">{items.length} 条</Tag>
+        </Space>
+      }
+      dataSource={items}
+      renderItem={(rec, idx) => (
+        <List.Item
+          actions={[
+            <Button key="a" type="primary" size="small" onClick={() => onAdopt(rec)}>
+              采纳
+            </Button>,
+            <Button key="d" size="small" onClick={() => onDismiss(rec.rec_id)}>
+              驳回
+            </Button>,
+          ]}
+        >
+          <List.Item.Meta
+            title={
+              <Space wrap>
+                <Typography.Text type="secondary">#{idx + 1}</Typography.Text>
+                <Typography.Text strong>{rec.sector_name}</Typography.Text>
+                {typeof rec.beta_score === "number" && (
+                  <Tag color="geekblue">景气分 {(rec.beta_score * 100).toFixed(0)}</Tag>
+                )}
+                {rec.signals?.capex_positive && <Tag color="green">主力资金正向</Tag>}
+                {typeof rec.signals?.research_support_count === "number" &&
+                  rec.signals.research_support_count > 0 && (
+                    <Tag color="blue">题材/研报支撑 {rec.signals.research_support_count}</Tag>
+                  )}
+              </Space>
+            }
+            description={rec.rationale}
+          />
+        </List.Item>
+      )}
+    />
+  );
+}
+
+export default function AgentConsole({ sectorId, sectorName, focus, query, onFocusChange, onReload }: Props) {
   const { message } = AntApp.useApp();
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<AgentRunSummary | null>(null);
@@ -70,12 +129,52 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
     loadProposals();
   }, [sectorId]);
 
+  const displaySectorRecs = useMemo(() => {
+    if (sectorRecs.length > 0) {
+      return sectorRecs;
+    }
+    const fromRun = (lastResult as { recommendations?: SectorRecommendation[] } | null)?.recommendations;
+    return fromRun?.length ? fromRun : [];
+  }, [sectorRecs, lastResult]);
+
+  const handleAdopt = async (rec: SectorRecommendation) => {
+    try {
+      const r = await adoptSectorRecommendation(rec.rec_id);
+      loadProposals();
+      onReload?.();
+      const boot = r.bootstrap as {
+        constituents?: { status?: string; reason?: string };
+        report_draft?: { status?: string; draft_id?: string };
+      } | null;
+      if (!boot) {
+        message.success(`已采纳赛道「${rec.sector_name}」`);
+        return;
+      }
+      if (boot.constituents?.status === "skipped") {
+        message.warning(`已采纳「${rec.sector_name}」；成分股同步跳过：${boot.constituents.reason ?? "未配置"}`);
+      } else {
+        message.success(`已采纳「${rec.sector_name}」并触发赛道冷启动`);
+      }
+      if (boot.report_draft?.draft_id) {
+        message.info(`已生成知识草案 ${boot.report_draft.draft_id}`);
+      }
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || "采纳失败");
+    }
+  };
+
   const run = async (key: string, fn: () => Promise<AgentRunSummary | Record<string, unknown>>) => {
     setLoadingKey(key);
     try {
-      const result = (await fn()) as AgentRunSummary;
+      const result = (await fn()) as AgentRunSummary & { recommendations?: SectorRecommendation[] };
       setLastResult(result);
-      message.success(`${result.agent} 完成`);
+      if (result.recommendations?.length) {
+        setSectorRecs(result.recommendations);
+        message.success(`扫描完成，发现 ${result.recommendations.length} 条待采纳推荐`);
+      } else {
+        message.warning(result.agent_summary || "扫描完成，但未产生可采纳推荐");
+      }
       loadProposals();
       onReload?.();
     } catch (e: unknown) {
@@ -86,8 +185,15 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
     }
   };
 
+  const runColdStartScan = () => {
+    onFocusChange?.("");
+    run("sector-cold", () =>
+      runSectorRecommendAgent({ query: query || undefined, max_recommendations: 5, force_cold_start: true })
+    );
+  };
+
   return (
-    <Card title="智能体控制台（赛道发现 · 产业研判 · 流程编排）" style={{ marginBottom: 16 }}>
+    <Card title="赛道发现与研判工具" style={{ marginBottom: 16 }}>
       <Tabs
         items={[
           {
@@ -95,73 +201,49 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
             label: "赛道推荐",
             children: (
               <Space direction="vertical" style={{ width: "100%" }} size="middle">
-                <Typography.Text type="secondary">
-                  ReAct 扫描：指标 → 研报 → 动态观察清单 → Beta 提案
-                </Typography.Text>
-                <Button
-                  type="primary"
-                  loading={loadingKey === "sector"}
-                  onClick={() =>
-                    run("sector", () =>
-                      runSectorRecommendAgent({ focus: focus || undefined, query: query || undefined })
-                    )
+                <Alert
+                  type="info"
+                  showIcon
+                  message="怎么用"
+                  description={
+                    <>
+                      <strong>发现景气赛道</strong>：不限方向，按主力资金 + 多日涨幅 + 同花顺题材热度综合排序，最快看到当前最景气的板块。
+                      <br />
+                      <strong>按关注方向扫描</strong>：结合你填写的「{focus || "观察焦点"}」与已上传研报，生成更贴合的候选。
+                      <br />
+                      两种方式产出的推荐都在下方列表，点 <strong>采纳</strong> 即建立赛道。
+                    </>
                   }
-                >
-                  运行赛道扫描
-                </Button>
-                {sectorRecs.length > 0 && (
-                  <List
-                    size="small"
-                    header="待采纳赛道推荐"
-                    dataSource={sectorRecs}
-                    renderItem={(rec) => (
-                      <List.Item
-                        actions={[
-                          <a
-                            key="a"
-                            onClick={() =>
-                              adoptSectorRecommendation(rec.rec_id).then((r) => {
-                                loadProposals();
-                                onReload?.();
-                                const boot = r.bootstrap as {
-                                  constituents?: { status?: string; reason?: string };
-                                  report_draft?: { status?: string; draft_id?: string };
-                                } | null;
-                                if (!boot) {
-                                  message.success("已采纳赛道推荐");
-                                  return;
-                                }
-                                if (boot.constituents?.status === "skipped") {
-                                  message.warning(
-                                    `已采纳；成分股同步跳过：${boot.constituents.reason ?? "未配置"}`
-                                  );
-                                } else {
-                                  message.success("已采纳并触发赛道冷启动");
-                                }
-                                if (boot.report_draft?.draft_id) {
-                                  message.info(`已生成知识草案 ${boot.report_draft.draft_id}`);
-                                }
-                              })
-                            }
-                          >
-                            采纳
-                          </a>,
-                          <a key="d" onClick={() => dismissSectorRecommendation(rec.rec_id).then(loadProposals)}>
-                            驳回
-                          </a>,
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={
-                            <Space>
-                              {rec.sector_name}
-                              <Tag color="purple">{rec.agent_mode}</Tag>
-                            </Space>
-                          }
-                          description={rec.rationale}
-                        />
-                      </List.Item>
-                    )}
+                />
+                <Space wrap>
+                  <Button
+                    type="primary"
+                    loading={loadingKey === "sector-cold"}
+                    onClick={runColdStartScan}
+                  >
+                    发现景气赛道
+                  </Button>
+                  <Button
+                    loading={loadingKey === "sector"}
+                    onClick={() =>
+                      run("sector", () =>
+                        runSectorRecommendAgent({ focus: focus || undefined, query: query || undefined })
+                      )
+                    }
+                  >
+                    {focus ? `按关注方向「${focus}」扫描` : "按关注方向扫描"}
+                  </Button>
+                </Space>
+                {displaySectorRecs.length > 0 ? (
+                  <SectorRecommendationList
+                    items={displaySectorRecs}
+                    onAdopt={handleAdopt}
+                    onDismiss={(recId) => dismissSectorRecommendation(recId).then(loadProposals)}
+                  />
+                ) : (
+                  <Empty
+                    description="暂无待采纳赛道。点击上方「发现景气赛道」开始，或上传研报后按方向扫描。"
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
                   />
                 )}
               </Space>
@@ -173,7 +255,12 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
             children: (
               <Space direction="vertical" style={{ width: "100%" }} size="middle">
                 <Typography.Text>
-                  当前赛道：<Tag>{sectorId}</Tag>
+                  当前赛道：<Tag color={sectorId ? "blue" : undefined}>{sectorName || (sectorId ? "已选择" : "未选择")}</Tag>
+                  {!sectorId && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                      请先在上方采纳并选择一个赛道
+                    </Typography.Text>
+                  )}
                 </Typography.Text>
                 <Input.TextArea
                   rows={3}
@@ -206,7 +293,7 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
                     loading={loadingKey === "serenity"}
                     onClick={() => run("serenity", () => runSerenityPathAgent({ sector_id: sectorId }))}
                   >
-                    Serenity 溯源
+                    受益溯源
                   </Button>
                   <Button
                     loading={loadingKey === "report"}
@@ -214,7 +301,7 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
                       run("report", () => runReportGraphRAGAgent({ sector_id: sectorId, mode: "fusion" }))
                     }
                   >
-                    GraphRAG 报告
+                    生成报告初稿
                   </Button>
                   <Button
                     loading={loadingKey === "fusion"}
@@ -234,7 +321,7 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
                 {bottleneckRecs.length > 0 && (
                   <List
                     size="small"
-                    header="待确认瓶颈提案（→ 图谱页 ConfirmBottleneck）"
+                    header="待确认瓶颈环节（去「产业图谱」确认）"
                     dataSource={bottleneckRecs}
                     renderItem={(rec) => (
                       <List.Item
@@ -252,7 +339,7 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
                 {serenityRecs.length > 0 && (
                   <List
                     size="small"
-                    header="待确认 Serenity 路径"
+                    header="待确认受益路径"
                     dataSource={serenityRecs}
                     renderItem={(rec) => (
                       <List.Item
@@ -290,11 +377,12 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
           },
           {
             key: "orchestrator",
-            label: "七步编排",
+            label: "一键全流程",
             children: (
               <Space direction="vertical" style={{ width: "100%" }}>
                 <Typography.Paragraph type="secondary">
-                  按门控串联七步 Agent；未确认赛道时 gated 步骤会跳过或中止（stop_on_gate=true）。
+                  自动串联「赛道发现 → 瓶颈扫描 → 受益溯源 → 报告初稿 → 候选融合 → 动态监控」六步；
+                  未确认景气的赛道会自动跳过需门控的步骤，确保人工把关。
                 </Typography.Paragraph>
                 <Button
                   type="primary"
@@ -320,7 +408,7 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
                     )
                   }
                 >
-                  运行 Orchestrator（门控模式）
+                  一键运行全流程
                 </Button>
               </Space>
             ),
@@ -332,12 +420,7 @@ export default function AgentConsole({ sectorId, focus, query, onFocusChange, on
           style={{ marginTop: 16 }}
           type="info"
           showIcon
-          message={
-            <Space>
-              <Tag>{lastResult.agent}</Tag>
-              {lastResult.agent_mode && <Tag color="purple">{lastResult.agent_mode}</Tag>}
-            </Space>
-          }
+          message="运行结果"
           description={
             <>
               {lastResult.agent_summary && <div>{lastResult.agent_summary}</div>}

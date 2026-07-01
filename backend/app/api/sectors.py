@@ -34,7 +34,7 @@ def list_sectors():
 @router.post("/{sector_id}/confirm")
 def confirm_sector(sector_id: str, req: ConfirmSectorRequest):
     """研究员确认/驳回赛道景气 — 委托 Ontology Action ConfirmSectorBeta。"""
-    from app.services.graph_store import get_store
+    from app.services.graph_store import get_store, invalidate_store_cache
 
     if get_store().get_sector(sector_id) is None:
         raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
@@ -44,6 +44,8 @@ def confirm_sector(sector_id: str, req: ConfirmSectorRequest):
 
         set_object_property("Sector", sector_id, "status", "rejected")
         set_object_property("Sector", sector_id, "human_confirmed", False)
+        # 状态已写入 DB/overlay，失效缓存快照，确保后续 GET /sectors 读到最新值
+        invalidate_store_cache()
         return {"sector_id": sector_id, "status": "rejected", "reason": req.reason}
 
     try:
@@ -57,6 +59,7 @@ def confirm_sector(sector_id: str, req: ConfirmSectorRequest):
     except ActionError as e:
         raise HTTPException(status_code=400, detail=e.message) from e
 
+    invalidate_store_cache()
     return {
         "sector_id": sector_id,
         "status": "beta_confirmed",

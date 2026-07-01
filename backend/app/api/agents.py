@@ -31,6 +31,9 @@ class SectorRecommendRequest(BaseModel):
     query: str | None = Field(None, description="补充研究问题")
     max_recommendations: int = Field(5, ge=1, le=10)
     operator: str = "analyst"
+    force_cold_start: bool = Field(
+        False, description="强制走行业板块综合排序（多日涨幅+资金净流入+题材热度），无视已有赛道"
+    )
 
 
 class KnowledgeIngestRequest(BaseModel):
@@ -142,6 +145,7 @@ def run_sector_recommend(req: SectorRecommendRequest):
             query=req.query,
             max_recommendations=req.max_recommendations,
             operator=req.operator,
+            force_cold_start=req.force_cold_start,
         ),
     )
 

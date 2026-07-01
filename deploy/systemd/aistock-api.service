@@ -5,11 +5,11 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=aistock
-Group=aistock
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/aistock/backend
 EnvironmentFile=/opt/aistock/deploy/aistock.env
-ExecStart=/opt/aistock/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+ExecStart=/opt/aistock/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=5
 
