@@ -80,14 +80,21 @@ def calc_bottleneck_hint(product: dict) -> HintScoreResult:
         + concentration * weights["concentration"]
     )
 
-    # 知识保鲜（主线二）：stale 数据轻度降权并标注
+    # 知识保鲜（主线二，DESIGN §5.7）：stale 显著降权、aging 轻度降权，系数可配置
     from app.services.freshness import product_freshness
 
     freshness = product_freshness(product)["freshness"]
+    penalty_cfg = config.get("freshness_penalty", {}) or {}
     stale_note = None
-    if freshness == "stale":
-        total *= 0.85
-        stale_note = {"rule": "freshness", "value": "stale", "score": 0, "note": "数据过期，降权 15%"}
+    penalty = penalty_cfg.get(freshness)
+    if penalty is not None and penalty < 1:
+        total *= float(penalty)
+        stale_note = {
+            "rule": "freshness",
+            "value": freshness,
+            "score": 0,
+            "note": f"知识{'过期' if freshness == 'stale' else '临期'}，降权 {round((1 - float(penalty)) * 100)}%",
+        }
 
     if total >= thresholds["hint_high"]:
         hint_level = "hint_high"

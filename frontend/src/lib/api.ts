@@ -1,6 +1,13 @@
 import axios from "axios";
+import { getStoredOperator } from "./operatorStorage";
 
 export const api = axios.create({ baseURL: "/api/v1" });
+
+api.interceptors.request.use((config) => {
+  config.headers = config.headers ?? {};
+  config.headers["X-Operator"] = getStoredOperator();
+  return config;
+});
 
 export interface Sector {
   id: string;
@@ -27,16 +34,23 @@ export interface EdgeAssessment {
   priced_in: string;
   crowding_percentile?: number | null;
   pe_percentile?: number | null;
+  analyst_coverage?: number | null;
+  eps_revision_trend?: string;
   degraded?: boolean;
+  reason?: string;
   flag?: string | null;
+  evidence_refs?: { ref_id?: string; excerpt?: string }[];
 }
 
 export interface ValueCaptureCard {
   captures_economics: string;
   gross_margin?: number | null;
+  market_rank?: number | null;
   pricing_mechanism?: string;
   degraded?: boolean;
+  reason?: string;
   flag?: string | null;
+  evidence_refs?: { ref_id?: string; excerpt?: string }[];
 }
 
 export interface BearCase {
@@ -74,6 +88,7 @@ export interface Candidate {
   role?: string;
   priority?: string;
   tag?: string;
+  product_id?: string;
   product_name: string;
   hint_score: number;
   hint_type?: string;
@@ -254,8 +269,87 @@ export interface AgentRunSummary {
   agent_mode?: string;
   agent_summary?: string;
   disclaimer?: string;
+  ui_blocks?: UIBlock[];
   [key: string]: unknown;
 }
+
+export interface UIAction {
+  action_id: string;
+  label: string;
+  kind?: "primary" | "default" | "danger";
+  api_method?: string;
+  api_path?: string;
+  body_template?: Record<string, unknown>;
+  ontology_action?: string;
+  requires_reason?: boolean;
+  confirm_text?: string;
+  required_roles?: string[];
+}
+
+export interface UIBlock {
+  block_id: string;
+  type: string;
+  title: string;
+  agent_key?: string;
+  risk_level?: "low" | "medium" | "high";
+  data: Record<string, unknown>;
+  actions?: UIAction[];
+  required_roles?: string[];
+}
+
+export interface UiPermissionsApi {
+  operator: string;
+  roles: string[];
+  blocks: Record<string, boolean>;
+  interactions: Record<string, boolean>;
+}
+
+export const getAgentUiPermissions = () =>
+  api.get<UiPermissionsApi>("/agents/ui-permissions").then((r) => r.data);
+
+export interface IntentResponse {
+  intent: string;
+  agent_key?: string;
+  params?: Record<string, unknown>;
+  assistant_message: string;
+  suggested_chips: string[];
+  clarify?: string;
+  router?: "rule" | "llm";
+}
+
+export interface AgentSessionState {
+  session_id: string;
+  operator?: string;
+  sector_id?: string;
+  focus?: string;
+  workflow_step?: number;
+  messages: { id: string; role: string; content: string; timestamp: number }[];
+  ui_blocks: UIBlock[];
+  chips: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const resolveAgentIntent = (body: {
+  message: string;
+  sector_id?: string;
+  focus?: string;
+  workflow_step?: number;
+  recent_messages?: string[];
+  use_llm?: boolean;
+}) => api.post<IntentResponse>("/agents/intent", body).then((r) => r.data);
+
+export const createAgentSession = (body: {
+  sector_id?: string;
+  focus?: string;
+  workflow_step?: number;
+}) => api.post<AgentSessionState>("/agents/sessions", body).then((r) => r.data);
+
+export const getAgentSession = (sessionId: string) =>
+  api.get<AgentSessionState>(`/agents/sessions/${sessionId}`).then((r) => r.data);
+
+export const updateAgentSession = (sessionId: string, body: Partial<AgentSessionState>) =>
+  api.put<AgentSessionState>(`/agents/sessions/${sessionId}`, body).then((r) => r.data);
 
 export const getWatchlist = (focus?: string) =>
   api
@@ -392,6 +486,7 @@ export const runOrchestrator = (body: {
   mode?: string;
   steps?: string[];
   stop_on_gate?: boolean;
+  resume?: boolean;
   data_task?: string;
   data_tasks?: string[];
   data_preset?: string;
@@ -410,6 +505,15 @@ export const getBottleneckRecommendations = (sectorId?: string, status?: string)
 
 export const dismissBottleneckRecommendation = (recId: string) =>
   api.post(`/agents/bottleneck-recommendations/${recId}/dismiss`).then((r) => r.data);
+
+export const confirmBottleneckRecommendation = (recId: string, reason: string, operator = "analyst") =>
+  api
+    .post<{ rec_id: string; status: string; requires_dual_review: boolean; message: string }>(
+      `/agents/bottleneck-recommendations/${recId}/confirm`,
+      null,
+      { params: { reason, operator } }
+    )
+    .then((r) => r.data);
 
 export const getSerenityRecommendations = (sectorId?: string, status?: string) =>
   api
@@ -460,6 +564,106 @@ export const confirmSector = (sectorId: string, confirmed: boolean, reason: stri
   api
     .post(`/sectors/${sectorId}/confirm`, { confirmed, reason, operator })
     .then((r) => r.data);
+
+export type WorkflowStepStatus = "done" | "active" | "blocked" | "pending";
+
+export interface WorkflowStep {
+  id: string;
+  step_number: number;
+  title: string;
+  agent: string;
+  status: WorkflowStepStatus;
+  block_reason?: string | null;
+  pending_count: number;
+  cta_action: string;
+  cta_route: string;
+}
+
+export interface WorkflowTodo {
+  type: string;
+  count: number;
+  message: string;
+  action: string;
+  route: string;
+}
+
+/** 五阶段呈现模型（引擎仍为七步）：赛道→产业链→环节→标的→跟踪 */
+export interface WorkflowPhase {
+  phase_number: number;
+  id: string;
+  title: string;
+  description: string;
+  cta_route: string;
+  status: WorkflowStepStatus;
+  block_reason?: string | null;
+  pending_count: number;
+  steps: string[];
+}
+
+export interface SectorWorkflowStatus {
+  sector_id: string;
+  sector_name?: string;
+  sector_confirmed: boolean;
+  current_step: number;
+  steps: WorkflowStep[];
+  current_phase: number;
+  phases: WorkflowPhase[];
+  pending_todos: WorkflowTodo[];
+  resume_steps: string[];
+  graph_stats: { products: number; companies: number; drafts: number };
+}
+
+export interface SectorWorkflowOverviewItem {
+  sector_id: string;
+  sector_name?: string;
+  sector_confirmed: boolean;
+  current_phase: number;
+  phases: WorkflowPhase[];
+  blocking_point?: string | null;
+  pending_total: number;
+  pending_todos: WorkflowTodo[];
+  resume_steps: string[];
+}
+
+export const getWorkflowOverview = (mode = "fusion") =>
+  api
+    .get<{ items: SectorWorkflowOverviewItem[]; count: number }>("/sectors/workflow-overview", {
+      params: { mode },
+    })
+    .then((r) => r.data);
+
+export const getSectorWorkflowStatus = (sectorId: string, mode = "fusion") =>
+  api
+    .get<SectorWorkflowStatus>(`/sectors/${sectorId}/workflow-status`, { params: { mode } })
+    .then((r) => r.data);
+
+export interface ConstituentBoardEntry {
+  type: string;
+  name: string;
+}
+
+export interface SectorConstituentConfig {
+  boards: ConstituentBoardEntry[];
+  default_product_id: string | null;
+  product_keywords: Record<string, string[]>;
+}
+
+export interface SectorConstituentConfigMeta {
+  sector_id: string;
+  source: "db" | "json_seed" | "none";
+  config: SectorConstituentConfig;
+  available_products: { id: string; name: string }[];
+  note?: string;
+}
+
+export const getSectorConstituentConfig = (sectorId: string) =>
+  api.get<SectorConstituentConfigMeta>(`/sectors/${sectorId}/constituent-config`).then((r) => r.data);
+
+export const saveSectorConstituentConfig = (sectorId: string, config: SectorConstituentConfig) =>
+  api.put<SectorConstituentConfigMeta>(`/sectors/${sectorId}/constituent-config`, config).then((r) => r.data);
+
+export const importSectorConstituentSeed = (sectorId: string) =>
+  api.post<SectorConstituentConfigMeta>(`/sectors/${sectorId}/constituent-config/import-seed`).then((r) => r.data);
 
 export const getHealth = () => api.get("/health").then((r) => r.data);
 
@@ -565,6 +769,30 @@ export interface DiagnosisItem {
   signals: { type: string; signal: string; detail: string }[];
   advice: string;
 }
+
+/** 标的论证档案 — 单标的多空对照 + 三道闸依据 */
+export interface CandidateDossier {
+  sector_id: string;
+  mode: string;
+  candidate: Candidate;
+  bull?: {
+    report_id?: string;
+    report_status?: string;
+    thesis_summary?: string | null;
+    logic_chain: LogicStep[];
+    citations: Citation[];
+  } | null;
+  bear_cases: BearCase[];
+  diagnosis?: DiagnosisItem | null;
+  note?: string;
+}
+
+export const getCandidateDossier = (sectorId: string, stockCode: string, mode = "fusion") =>
+  api
+    .get<CandidateDossier>("/candidates/dossier", {
+      params: { sector_id: sectorId, stock_code: stockCode, mode },
+    })
+    .then((r) => r.data);
 
 export const getDiagnosis = (sectorId: string) =>
   api.get<{ items: DiagnosisItem[]; count: number }>(`/diagnosis/sector/${sectorId}`).then((r) => r.data);
@@ -678,10 +906,27 @@ export const validateKnowledgeDraft = (draftId: string) =>
 export const confirmKnowledgeDraft = (draftId: string, force = false) =>
   api.post(`/knowledge/drafts/${draftId}/confirm`, null, { params: { force } }).then((r) => r.data);
 
+export interface PendingReview {
+  pending_id: string;
+  action_type: string;
+  target_type?: string;
+  target_id: string;
+  first_operator: string;
+  created_at?: string;
+}
+
 export const getPendingReviews = () =>
-  api.get<{ items: { pending_id: string; action_type: string; target_id: string; first_operator: string }[] }>(
-    "/ontology/pending-reviews"
-  ).then((r) => r.data);
+  api.get<{ items: PendingReview[] }>("/ontology/pending-reviews").then((r) => r.data);
+
+export const approvePendingReview = (pendingId: string, operator: string) =>
+  api
+    .post(`/ontology/pending-reviews/${pendingId}/approve`, null, { params: { operator } })
+    .then((r) => r.data);
+
+export const rejectPendingReview = (pendingId: string, operator: string, reason: string) =>
+  api
+    .post(`/ontology/pending-reviews/${pendingId}/reject`, null, { params: { operator, reason } })
+    .then((r) => r.data);
 
 export const getSectorGraph = (sectorId: string) =>
   api.get<SectorGraph>(`/graph/sector/${sectorId}`).then((r) => r.data);
@@ -696,6 +941,8 @@ export const confirmCandidates = (body: {
   action: "confirmed" | "rejected";
   reason: string;
   operator?: string;
+  /** 三道闸复核确认：预期差透支/价值不可捕获时须显式确认（后端硬校验） */
+  gate_ack?: boolean;
 }) => api.post("/candidates/confirm", body).then((r) => r.data);
 
 /** Ontology Action API — 推荐新代码使用 */

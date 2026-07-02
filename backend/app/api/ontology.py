@@ -34,6 +34,7 @@ class BatchPoolActionRequest(BaseModel):
     stock_codes: list[str]
     reason: str = Field(..., min_length=5)
     operator: str = "analyst"
+    gate_ack: bool = False
 
 
 class FunctionInvokeRequest(BaseModel):
@@ -100,6 +101,53 @@ def list_pending_reviews():
     return {"items": list_pending()}
 
 
+@router.post("/pending-reviews/{pending_id}/approve")
+def approve_pending_review(pending_id: str, operator: str = "fund_manager"):
+    """第二人复核通过 — 以存档参数重放原 Action，effects 正式生效。"""
+    from app.services.dual_review import get_pending
+
+    pending = get_pending(pending_id)
+    if pending is None or pending.get("status") != "pending":
+        raise HTTPException(status_code=404, detail="待复核记录不存在或已处理")
+    try:
+        result = action_executor.execute_with_params(
+            action_type=pending["action_type"],
+            target_type=pending["target_type"],
+            target_id=pending["target_id"],
+            params=pending.get("params") or {},
+            operator=operator,
+        )
+    except ActionError as e:
+        raise HTTPException(status_code=400, detail={"code": e.code, "message": e.message}) from e
+    return {
+        "pending_id": pending_id,
+        "status": result.status,
+        "audit_id": result.audit_id,
+        "message": result.message,
+    }
+
+
+@router.post("/pending-reviews/{pending_id}/reject")
+def reject_pending_review(pending_id: str, operator: str = "fund_manager", reason: str = ""):
+    """第二人复核驳回 — 原 Action 不生效，留痕审计。"""
+    from app.services.audit import audit_log
+    from app.services.dual_review import reject_pending
+
+    try:
+        pending = reject_pending(pending_id, operator, reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if pending is None:
+        raise HTTPException(status_code=404, detail="待复核记录不存在或已处理")
+    audit_log.record(
+        action=f"ontology.{pending['action_type']}.review_rejected",
+        operator=operator,
+        target=f"{pending['target_type']}:{pending['target_id']}",
+        detail={"pending_id": pending_id, "reason": reason},
+    )
+    return {"pending_id": pending_id, "status": "rejected", "reason": reason}
+
+
 @router.post("/actions/{action_type}/execute")
 def execute_action(action_type: str, req: ActionExecuteRequest):
     """执行单个 Ontology Action。"""
@@ -142,7 +190,7 @@ def batch_pool_action(action_type: str, req: BatchPoolActionRequest):
                 action_type=action_type,
                 target_type="CandidatePoolEntry",
                 target_id=entry_id,
-                params={"reason": req.reason},
+                params={"reason": req.reason, "gate_ack": req.gate_ack},
                 operator=req.operator,
             )
             results.append({"stock_code": code, "audit_id": r.audit_id, "status": "ok"})

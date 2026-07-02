@@ -3,6 +3,7 @@ import {
   App as AntApp,
   Button,
   Card,
+  Collapse,
   Descriptions,
   Form,
   Input,
@@ -15,18 +16,24 @@ import {
   Upload,
 } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
+import AgentWorkflowProgress from "../components/AgentWorkflowProgress";
+import SectorConstituentConfigPanel from "../components/SectorConstituentConfigPanel";
+import AgentPageStrip from "../components/agent-session/AgentPageStrip";
 import {
   confirmKnowledgeDraft,
   getKnowledgeDrafts,
+  getSectorWorkflowStatus,
   getUploadedDocuments,
-  ingestKnowledge,
   ingestKnowledgeAsync,
   ingestSectorReports,
+  runKnowledgeIngestAgent,
+  syncSectorConstituents,
   syncSectorReports,
   uploadResearchReport,
   validateKnowledgeDraft,
   type KnowledgeDraft,
   type KnowledgeDraftValidation,
+  type SectorWorkflowStatus,
   type UploadedDocument,
 } from "../lib/api";
 import { useSector } from "../lib/sectorContext";
@@ -39,6 +46,7 @@ export default function KnowledgePage() {
   const [form] = Form.useForm();
   const [drafts, setDrafts] = useState<KnowledgeDraft[]>([]);
   const [documents, setDocuments] = useState<UploadedDocument[]>([]);
+  const [workflow, setWorkflow] = useState<SectorWorkflowStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [extractOnUpload, setExtractOnUpload] = useState(true);
@@ -48,11 +56,13 @@ export default function KnowledgePage() {
   const [validation, setValidation] = useState<KnowledgeDraftValidation | null>(null);
   const [validating, setValidating] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [lastBootstrap, setLastBootstrap] = useState<string | null>(null);
 
   const load = () => {
     if (!sectorId) return;
     getKnowledgeDrafts(sectorId).then((r) => setDrafts(r.items));
     getUploadedDocuments(sectorId).then(setDocuments);
+    getSectorWorkflowStatus(sectorId).then(setWorkflow);
   };
 
   useEffect(() => {
@@ -62,6 +72,8 @@ export default function KnowledgePage() {
   useEffect(() => {
     form.setFieldsValue({ content: SAMPLE, source_ref: "示例-产业研报 2026Q1" });
   }, [form]);
+
+  const hasConstituents = (workflow?.graph_stats.companies ?? 0) > 0;
 
   const submit = async (asyncMode: boolean) => {
     const vals = await form.validateFields();
@@ -78,13 +90,12 @@ export default function KnowledgePage() {
           r.mode === "celery" ? `已提交异步任务 ${r.task_id}` : `同步完成 ${r.draft_id}`
         );
       } else {
-        await ingestKnowledge({
+        await runKnowledgeIngestAgent({
           sector_id: sectorId,
-          source_type: "research_report",
           source_ref: vals.source_ref,
           content: vals.content,
         });
-        message.success("知识抽取完成，已生成草案");
+        message.success("Knowledge Agent 抽取完成，已生成草案");
       }
       load();
     } finally {
@@ -123,7 +134,7 @@ export default function KnowledgePage() {
       if (result.can_confirm_all) {
         message.success("校验通过，可校准入库");
       } else {
-        message.warning(`有 ${result.blocked_count} 条关系被 F5 规则阻断，需 force 确认或补充硬源`);
+        message.warning(`有 ${result.blocked_count} 条关系被 F5 规则阻断`);
       }
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };
@@ -136,8 +147,16 @@ export default function KnowledgePage() {
   const doConfirm = async (draftId: string, force: boolean) => {
     setConfirming(true);
     try {
-      await confirmKnowledgeDraft(draftId, force);
-      message.success(force ? "已强制校准入库" : "草案已校准入库");
+      const r = await confirmKnowledgeDraft(draftId, force);
+      message.success(force ? "已强制校准入库" : "草案已校准入库（CalibrateChain）");
+      if (r.bootstrap) {
+        const bs = r.bootstrap as { constituents?: { status?: string }; report_draft?: unknown };
+        const stats = r.graph_stats_after as { products?: number; companies?: number } | undefined;
+        setLastBootstrap(
+          `Bootstrap：${stats?.products ?? "?"} 产品 · ${stats?.companies ?? "?"} 成分股` +
+            (bs.constituents?.status === "skipped" ? "（成分股同步跳过）" : "")
+        );
+      }
       setDetailDraft(null);
       setValidation(null);
       load();
@@ -153,12 +172,7 @@ export default function KnowledgePage() {
     if (validation?.draft_id === draftId && !validation.can_confirm_all) {
       modal.confirm({
         title: "强制校准入库？",
-        content: (
-          <Typography.Paragraph>
-            有 {validation.blocked_count} 条关系未通过多源交叉校验（单一研报来源）。
-            强制确认将跳过 F5 阻断规则，请确认已人工复核。
-          </Typography.Paragraph>
-        ),
+        content: `有 ${validation.blocked_count} 条关系未通过多源交叉校验。`,
         okText: "强制入库",
         okButtonProps: { danger: true },
         onOk: () => doConfirm(draftId, true),
@@ -173,11 +187,7 @@ export default function KnowledgePage() {
     setReportLoading(true);
     try {
       const r = await syncSectorReports(sectorId);
-      message.success(
-        r.status === "skipped"
-          ? `未启用 ODS，已跳过（拉取 ${r.count ?? 0} 条）`
-          : `研报元数据同步完成（${r.adapter ?? "-"}/${r.count ?? 0} 条）`
-      );
+      message.success(r.message ?? `同步完成（${r.count ?? 0} 条）`);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };
       message.error(err.response?.data?.detail ?? "同步失败");
@@ -192,9 +202,9 @@ export default function KnowledgePage() {
     try {
       const r = await ingestSectorReports(sectorId);
       if (r.status === "empty") {
-        message.info("暂无研报标题可抽取，请先同步研报元数据");
+        message.info(r.message || "暂无研报可抽取");
       } else {
-        message.success(`研报抽取完成：${r.bottleneck_hints ?? 0} 条瓶颈提示 → 已生成草案`);
+        message.success(`研报抽取完成 → 草案已生成`);
       }
       load();
     } catch (e: unknown) {
@@ -202,6 +212,17 @@ export default function KnowledgePage() {
       message.error(err.response?.data?.detail ?? "抽取失败");
     } finally {
       setReportLoading(false);
+    }
+  };
+
+  const syncConstituents = async () => {
+    try {
+      const r = await syncSectorConstituents(sectorId);
+      message.success(r.message ?? "成分股同步已触发");
+      load();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail ?? "同步失败");
     }
   };
 
@@ -226,12 +247,7 @@ export default function KnowledgePage() {
                 <Button key="v" loading={validating} onClick={() => runValidate(detailDraft.draft_id)}>
                   校验
                 </Button>,
-                <Button
-                  key="c"
-                  type="primary"
-                  loading={confirming}
-                  onClick={() => confirm(detailDraft.draft_id)}
-                >
+                <Button key="c" type="primary" loading={confirming} onClick={() => confirm(detailDraft.draft_id)}>
                   校准入库
                 </Button>,
               ]
@@ -250,120 +266,73 @@ export default function KnowledgePage() {
               ) : (
                 <Tag color="orange">阻断 {validation.blocked_count} 条关系</Tag>
               )}
-              {validation.note && (
-                <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
-                  {validation.note}
-                </Typography.Text>
-              )}
             </Descriptions.Item>
           )}
         </Descriptions>
-
         {products.length > 0 && (
-          <>
-            <Typography.Title level={5}>新产品节点 ({products.length})</Typography.Title>
-            <List
-              size="small"
-              dataSource={products}
-              renderItem={(p) => (
-                <List.Item>
-                  <Space wrap>
-                    <Tag color="purple">{p.product_id}</Tag>
-                    <span>{p.name}</span>
-                    {p.layer && <Tag>{p.layer}</Tag>}
-                    {p.already_exists && <Tag color="default">已存在</Tag>}
-                    {p.is_new && !p.already_exists && <Tag color="cyan">待创建</Tag>}
-                  </Space>
-                </List.Item>
-              )}
-              style={{ marginBottom: 16 }}
-            />
-          </>
+          <List
+            size="small"
+            header={`新产品节点 (${products.length})`}
+            dataSource={products}
+            renderItem={(p) => (
+              <List.Item>
+                <Tag color="purple">{p.product_id}</Tag> {p.name}
+              </List.Item>
+            )}
+            style={{ marginBottom: 16 }}
+          />
         )}
-
-        {(rels.length > 0 || (ext.relations?.length ?? 0) > 0) && (
-          <>
-            <Typography.Title level={5}>产业链关系</Typography.Title>
-            <List
-              size="small"
-              dataSource={rels}
-              renderItem={(rel) => (
-                <List.Item>
-                  <Space direction="vertical" size={0}>
-                    <span>
-                      {rel.source_name ?? rel.source_id} → {rel.target_name ?? rel.target_id}
-                    </span>
-                    {rel.validation && (
-                      <Space size={4}>
-                        {rel.validation.can_confirm ? (
-                          <Tag color="green">可确认</Tag>
-                        ) : (
-                          <Tag color="red">阻断{rel.validation.report_only ? "（仅研报）" : ""}</Tag>
-                        )}
-                      </Space>
-                    )}
-                  </Space>
-                </List.Item>
-              )}
-              style={{ marginBottom: 16 }}
-            />
-          </>
-        )}
-
-        {(ext.bottleneck_hints?.length ?? 0) > 0 && (
-          <>
-            <Typography.Title level={5}>瓶颈提示</Typography.Title>
-            <List
-              size="small"
-              dataSource={ext.bottleneck_hints ?? []}
-              renderItem={(h) => (
-                <List.Item>
-                  {h.product_name ?? h.product_id}
-                  {h.confidence && <Tag style={{ marginLeft: 8 }}>{h.confidence}</Tag>}
-                </List.Item>
-              )}
-            />
-          </>
-        )}
-
-        {ext.evidence_excerpt && (
-          <>
-            <Typography.Title level={5}>证据摘录</Typography.Title>
-            <Typography.Paragraph type="secondary">{ext.evidence_excerpt}</Typography.Paragraph>
-          </>
+        {rels.length > 0 && (
+          <List
+            size="small"
+            header="产业链关系"
+            dataSource={rels}
+            renderItem={(rel) => (
+              <List.Item>
+                {rel.source_name ?? rel.source_id} → {rel.target_name ?? rel.target_id}
+              </List.Item>
+            )}
+          />
         )}
       </Modal>
     );
   };
 
+  const pendingDrafts = drafts.filter((d) => d.status !== "confirmed");
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Card title="外部研报数据源（东方财富，免费）">
-        <Typography.Paragraph type="secondary">
-          先同步研报元数据到 ODS，再从标题抽取产能/扩产瓶颈信号生成知识草案（草案见下方「待校准草案」）。
-        </Typography.Paragraph>
-        <Space wrap>
-          <Button loading={reportLoading} onClick={syncReports}>
-            同步研报元数据（em）
-          </Button>
-          <Button type="primary" loading={reportLoading} onClick={ingestReports}>
-            研报标题 → 抽取草案
-          </Button>
-        </Space>
-      </Card>
+      <Typography.Title level={4}>证据与校准（阶段② 产业链构建）</Typography.Title>
 
-      <Card title="外部研报上传（替代 API 接入）">
+      {workflow && (
+        <Card size="small">
+          <AgentWorkflowProgress
+            phases={workflow.phases}
+            currentPhase={workflow.current_phase}
+            steps={workflow.steps}
+            currentStep={workflow.current_step}
+            compact
+          />
+        </Card>
+      )}
+
+      {lastBootstrap && (
+        <Typography.Text type="success">{lastBootstrap}</Typography.Text>
+      )}
+
+      <Card title="Knowledge Agent — 上传 / 粘贴 → 草案 → 人工确认">
         <Typography.Paragraph type="secondary">
-          支持 TXT / MD / PDF / DOCX，原文归档至 MinIO，正文分块写入 Qdrant 向量库，可选同步知识抽取。
+          主路径：文本或研报 → Knowledge Agent 抽取三元组 → 校验 → <strong>CalibrateChain</strong> 确认入库。
+          确认后若图谱仍空将自动触发成分股 Bootstrap。
         </Typography.Paragraph>
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <Input
-            placeholder="来源标注（可选，默认取文件名）"
+            placeholder="来源标注（上传可选）"
             value={uploadRef}
             onChange={(e) => setUploadRef(e.target.value)}
           />
           <Space>
-            <span>上传后知识抽取</span>
+            <span>上传后自动抽取</span>
             <Switch checked={extractOnUpload} onChange={setExtractOnUpload} />
           </Space>
           <Upload.Dragger
@@ -376,66 +345,37 @@ export default function KnowledgePage() {
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
             </p>
-            <p className="ant-upload-text">点击或拖拽研报文件到此处上传</p>
-            <p className="ant-upload-hint">单文件 ≤ 20MB</p>
+            <p className="ant-upload-text">拖拽研报上传（TXT/MD/PDF/DOCX）</p>
           </Upload.Dragger>
+          <Form form={form} layout="vertical">
+            <Form.Item name="source_ref" label="来源" rules={[{ required: true }]}>
+              <Input placeholder="产业研报 2026Q1" />
+            </Form.Item>
+            <Form.Item name="content" label="粘贴文本" rules={[{ required: true, min: 20 }]}>
+              <Input.TextArea rows={4} />
+            </Form.Item>
+            <Space>
+              <Button type="primary" loading={loading} onClick={() => submit(false)}>
+                运行 Knowledge Agent
+              </Button>
+              <Button loading={loading} onClick={() => submit(true)}>
+                异步抽取
+              </Button>
+            </Space>
+          </Form>
         </Space>
       </Card>
 
-      <Card title="已入库研报">
-        <List
-          dataSource={documents}
-          locale={{ emptyText: "暂无上传研报" }}
-          renderItem={(d) => (
-            <List.Item>
-              <List.Item.Meta
-                title={
-                  <Space>
-                    <Tag>{d.doc_id}</Tag>
-                    {d.source_ref}
-                  </Space>
-                }
-                description={
-                  <Typography.Text type="secondary">
-                    {d.filename} · {d.char_count} 字 · {d.chunk_count} 块 · {d.status}
-                  </Typography.Text>
-                }
-              />
-            </List.Item>
-          )}
-        />
-      </Card>
-
-      <Card title="知识抽取（文本粘贴 → 草案三元组）">
-        <Form form={form} layout="vertical">
-          <Form.Item name="source_ref" label="来源" rules={[{ required: true }]}>
-            <Input placeholder="示例-产业研报 2026Q1" />
-          </Form.Item>
-          <Form.Item name="content" label="文本内容" rules={[{ required: true, min: 20 }]}>
-            <Input.TextArea rows={4} />
-          </Form.Item>
-          <Space>
-            <Button type="primary" loading={loading} onClick={() => submit(false)}>
-              同步抽取
-            </Button>
-            <Button loading={loading} onClick={() => submit(true)}>
-              异步抽取（Celery + MinIO）
-            </Button>
-          </Space>
-        </Form>
-      </Card>
-
-      <Card title="待校准草案">
+      <Card title={`待校准草案 (${pendingDrafts.length})`}>
         <List
           dataSource={drafts}
-          locale={{ emptyText: "暂无草案" }}
+          locale={{ emptyText: "暂无草案，请上方运行 Knowledge Agent" }}
           renderItem={(d) => (
             <List.Item
               actions={
                 d.status === "draft"
                   ? [
-                      <a key="d" onClick={() => openDetail(d)}>详情</a>,
-                      <a key="c" onClick={() => openDetail(d)}>校准入库</a>,
+                      <a key="d" onClick={() => openDetail(d)}>详情 / 确认</a>,
                     ]
                   : [<Tag key="ok" color="green">已确认</Tag>]
               }
@@ -449,9 +389,7 @@ export default function KnowledgePage() {
                 }
                 description={
                   <Typography.Text type="secondary">
-                    新产品 {(d.extracted.new_products?.length ?? 0)} 个 · 关系{" "}
-                    {d.extracted.relations?.length ?? 0} 条 · 瓶颈提示{" "}
-                    {d.extracted.bottleneck_hints?.length ?? 0} 条
+                    产品 {d.extracted.new_products?.length ?? 0} · 关系 {d.extracted.relations?.length ?? 0}
                   </Typography.Text>
                 }
               />
@@ -460,7 +398,75 @@ export default function KnowledgePage() {
         />
       </Card>
 
+      <Collapse
+        defaultActiveKey={["constituent"]}
+        items={[
+          {
+            key: "constituent",
+            label: "成分股同步配置（东财板块 → 上市公司入图）",
+            children: sectorId ? (
+              <SectorConstituentConfigPanel sectorId={sectorId} compact />
+            ) : (
+              <Typography.Text type="secondary">请先选择赛道</Typography.Text>
+            ),
+          },
+          {
+            key: "enrich",
+            label: "数据 enrichment（可选）— 东财研报元数据补充",
+            children: (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Typography.Paragraph type="secondary">
+                  拓扑仍以 Agent 草案为准；东财同步用于补充 ODS 证据。请先配置上方成分股映射并同步成分股。
+                </Typography.Paragraph>
+                <Space wrap>
+                  <Button
+                    loading={reportLoading}
+                    onClick={syncReports}
+                    disabled={!hasConstituents}
+                  >
+                    同步研报元数据（em）
+                  </Button>
+                  <Button
+                    type="default"
+                    loading={reportLoading}
+                    onClick={ingestReports}
+                    disabled={!hasConstituents}
+                  >
+                    研报标题 → 抽取草案
+                  </Button>
+                  <Button onClick={syncConstituents}>同步成分股</Button>
+                </Space>
+                {!hasConstituents && (
+                  <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                    尚无成分股：请先在上方配置东财板块并保存，再点「同步成分股」。
+                  </Typography.Text>
+                )}
+                <List
+                  size="small"
+                  header="已入库研报"
+                  dataSource={documents}
+                  locale={{ emptyText: "暂无上传研报" }}
+                  renderItem={(d) => (
+                    <List.Item>
+                      <Tag>{d.doc_id}</Tag> {d.filename} · {d.chunk_count} 块
+                    </List.Item>
+                  )}
+                />
+              </Space>
+            ),
+          },
+        ]}
+      />
+
       {renderDraftDetail()}
+
+      <AgentPageStrip
+        sectorId={sectorId}
+        focus="knowledge"
+        workflowStep={2}
+        pageHint="本页 Agent：上传研报、抽取知识、确认草稿"
+        onReload={load}
+      />
     </Space>
   );
 }

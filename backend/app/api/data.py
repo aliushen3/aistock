@@ -8,7 +8,7 @@ from app.services.a_share_data_source import (
     list_seven_layer_capabilities,
     route_task_to_layers,
 )
-from app.services.graph_store import get_store
+from app.services.graph_store import get_store, sector_company_codes
 from app.services.graph_ingest import ontology_company_stats, sync_constituents
 from app.services.ods_service import (
     ods_stats,
@@ -21,6 +21,23 @@ from app.services.ods_service import (
 )
 
 router = APIRouter(prefix="/data", tags=["data"])
+
+
+def _require_sector_stock_codes(sector_id: str) -> list[str]:
+    """按赛道取成分股代码；缺失时返回 400 与可操作的提示。"""
+    store = get_store()
+    codes = sector_company_codes(sector_id)
+    if codes:
+        return codes
+    if not store.list_products(sector_id):
+        raise HTTPException(
+            status_code=400,
+            detail="赛道尚无产业链环节（Product），请先在「知识抽取」确认拓扑后再同步数据",
+        )
+    raise HTTPException(
+        status_code=400,
+        detail="当前赛道 0 只成分股，请先配置成分股映射并执行「同步成分股」",
+    )
 
 
 class SevenLayerFetchRequest(BaseModel):
@@ -125,8 +142,7 @@ def trigger_metrics_sync(sector_id: str, adapter: str | None = None):
 def trigger_market_sync(sector_id: str, adapter: str | None = None):
     if get_store().get_sector(sector_id) is None:
         raise HTTPException(status_code=404, detail="赛道不存在")
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = _require_sector_stock_codes(sector_id)
     try:
         return sync_market_daily(codes, adapter_name=adapter)
     except ValueError as e:
@@ -139,8 +155,7 @@ def trigger_market_sync(sector_id: str, adapter: str | None = None):
 def trigger_announcements_sync(sector_id: str, adapter: str | None = None):
     if get_store().get_sector(sector_id) is None:
         raise HTTPException(status_code=404, detail="赛道不存在")
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = _require_sector_stock_codes(sector_id)
     try:
         return sync_announcements(codes, adapter_name=adapter)
     except ValueError as e:
@@ -153,8 +168,7 @@ def trigger_announcements_sync(sector_id: str, adapter: str | None = None):
 def trigger_financials_sync(sector_id: str, adapter: str | None = None):
     if get_store().get_sector(sector_id) is None:
         raise HTTPException(status_code=404, detail="赛道不存在")
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = _require_sector_stock_codes(sector_id)
     try:
         return sync_financials(codes, adapter_name=adapter)
     except ValueError as e:
@@ -167,10 +181,11 @@ def trigger_financials_sync(sector_id: str, adapter: str | None = None):
 def trigger_reports_sync(sector_id: str, adapter: str | None = None):
     if get_store().get_sector(sector_id) is None:
         raise HTTPException(status_code=404, detail="赛道不存在")
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = _require_sector_stock_codes(sector_id)
     try:
-        return sync_external_reports(codes, adapter_name=adapter)
+        result = sync_external_reports(codes, adapter_name=adapter)
+        result["stock_codes"] = len(codes)
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except NotImplementedError as e:

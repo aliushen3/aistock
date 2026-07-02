@@ -436,3 +436,26 @@ class OntBearCase(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class AgentSessionRecord(Base):
+    """Agent LUI+GUI 会话持久化（§8.6.8）。"""
+
+    __tablename__ = "agent_session"
+
+    session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    operator: Mapped[str] = mapped_column(String(64), default="analyst")
+    sector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    focus: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    workflow_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    messages: Mapped[list] = mapped_column(JsonType, default=list)
+    ui_blocks: Mapped[list] = mapped_column(JsonType, default=list)
+    chips: Mapped[list] = mapped_column(JsonType, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

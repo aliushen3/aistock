@@ -13,6 +13,17 @@ class ConfirmSectorRequest(BaseModel):
     operator: str = "analyst"
 
 
+class BoardEntry(BaseModel):
+    type: str = Field("concept", description="concept | industry")
+    name: str = Field(..., min_length=1)
+
+
+class ConstituentConfigRequest(BaseModel):
+    boards: list[BoardEntry] = Field(default_factory=list)
+    default_product_id: str | None = None
+    product_keywords: dict[str, list[str]] = Field(default_factory=dict)
+
+
 @router.get("")
 def list_sectors():
     """列出赛道；高景气需研究员确认后才为 beta_confirmed。"""
@@ -29,6 +40,73 @@ def list_sectors():
         ],
         "note": "beta_candidate 需人工确认后方可进入后续流程",
     }
+
+
+@router.get("/workflow-overview")
+def sector_workflow_overview(mode: str = "fusion"):
+    """全部赛道的五阶段工作流概览 — 首页驾驶舱赛道看板。"""
+    from app.services.workflow_progress import get_workflow_overview
+
+    items = get_workflow_overview(mode=mode)
+    return {"items": items, "count": len(items)}
+
+
+@router.get("/{sector_id}/workflow-status")
+def sector_workflow_status(sector_id: str, mode: str = "fusion"):
+    """工作流进度（七步引擎 + 五阶段呈现）、待办与断点续跑步骤。"""
+    from app.services.graph_store import get_store
+    from app.services.workflow_progress import get_sector_workflow_status
+
+    if get_store().get_sector(sector_id) is None:
+        raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
+    try:
+        return get_sector_workflow_status(sector_id, mode=mode)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/{sector_id}/constituent-config")
+def get_constituent_config(sector_id: str):
+    from app.services.graph_store import get_store
+    from app.services.sector_board_config import get_sector_board_config_meta
+
+    if get_store().get_sector(sector_id) is None:
+        raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
+    return get_sector_board_config_meta(sector_id)
+
+
+@router.put("/{sector_id}/constituent-config")
+def put_constituent_config(sector_id: str, req: ConstituentConfigRequest):
+    from app.services.graph_store import get_store
+    from app.services.sector_board_config import save_sector_board_config
+
+    if get_store().get_sector(sector_id) is None:
+        raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
+    try:
+        return save_sector_board_config(
+            sector_id,
+            {
+                "boards": [b.model_dump() for b in req.boards],
+                "default_product_id": req.default_product_id,
+                "product_keywords": req.product_keywords,
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/{sector_id}/constituent-config/import-seed")
+def import_constituent_config_seed(sector_id: str):
+    """将内置 sector_boards.json 种子导入到 Sector.attrs（一次性迁移）。"""
+    from app.services.graph_store import get_store
+    from app.services.sector_board_config import import_legacy_json_to_db
+
+    if get_store().get_sector(sector_id) is None:
+        raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
+    try:
+        return import_legacy_json_to_db(sector_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/{sector_id}/confirm")

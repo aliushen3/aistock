@@ -167,6 +167,7 @@ def run_knowledge_ingest_agent(
         "react_steps": result.get("react_steps", len(react_trace)),
         "react_trace": react_trace,
         "agent_summary": result.get("agent_summary", ""),
+        "sector_id": sector_id,
         "draft_id": draft["draft_id"],
         "extracted": draft["extracted"],
         "status": draft["status"],

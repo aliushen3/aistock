@@ -29,6 +29,9 @@ MINIO_BUCKET = os.getenv("MINIO_BUCKET", "aistock-docs")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+# Agent 会话 Redis 缓存：auto=尝试连接 | on | off
+AGENT_SESSION_REDIS_ENABLED = os.getenv("AGENT_SESSION_REDIS_ENABLED", "auto").lower()
+AGENT_SESSION_REDIS_TTL = int(os.getenv("AGENT_SESSION_REDIS_TTL", "604800"))  # 7 天
 USE_NEO4J_TRAVERSAL = os.getenv("USE_NEO4J_TRAVERSAL", "auto").lower()
 
 # 数据接入适配器（按类型拆分）

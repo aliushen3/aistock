@@ -172,6 +172,25 @@ class ActionExecutor:
                     "precondition_failed",
                 )
 
+    def _check_soft_gates(self, obj: dict, params: dict[str, Any]) -> None:
+        """三道闸闸一/闸二后端校验（入池时）。
+
+        预期透支（priced_in=high）或价值不可捕获（captures_economics=no）时不强制剔除
+        （DESIGN §2.6：人工可保留并自述理由），但必须显式 gate_ack 确认，防止绕过前端复核。
+        """
+        edge = (obj or {}).get("edge_assessment") or {}
+        value = (obj or {}).get("value_capture") or {}
+        problems = []
+        if edge.get("priced_in") == "high":
+            problems.append("闸一预期差：priced_in=high（预期透支）")
+        if value.get("captures_economics") == "no":
+            problems.append("闸二价值捕获：captures_economics=no（利润不在此环节）")
+        if problems and not params.get("gate_ack"):
+            raise ActionError(
+                "；".join(problems) + " — 须显式确认三道闸复核（gate_ack=true）并在理由中说明保留依据",
+                "gate_not_acknowledged",
+            )
+
     def _apply_effects(
         self, effects: list[dict], target_type: str, target_id: str, obj: dict
     ) -> list[dict]:
@@ -219,6 +238,8 @@ class ActionExecutor:
             raise ActionError(f"对象不存在: {target_type}/{target_id}", "not_found")
 
         self._check_preconditions(spec.get("preconditions", []), obj)
+        if action_type == "ApprovePoolEntry":
+            self._check_soft_gates(obj, params)
 
         dual = spec.get("requires_dual_review", False)
         pending_id = None

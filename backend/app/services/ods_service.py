@@ -281,18 +281,34 @@ _LAYER_ODS_SYNC = {
 
 def sync_layer_to_ods(layer: str, sector_id: str) -> dict:
     """将 ODS 就绪层通过七层直连适配器同步入库。"""
+    from app.services.graph_store import sector_company_codes
+
     layer = (layer or "").lower()
     spec = _LAYER_ODS_SYNC.get(layer)
     if spec is None:
         raise ValueError(f"层 {layer} 不支持 ODS 同步")
     fn_name, adapter_name = spec
     store_fn = globals()[fn_name]
-    codes = list(get_store().companies.keys())
+    store = get_store()
+    codes = sector_company_codes(sector_id)
     if not codes:
-        return {"status": "skipped", "reason": "no_companies", "layer": layer}
+        reason = "no_products" if not store.list_products(sector_id) else "no_constituents"
+        message = (
+            "赛道尚无产业链环节，请先在「知识抽取」确认拓扑"
+            if reason == "no_products"
+            else "当前赛道 0 只成分股，请先完成「同步成分股」"
+        )
+        return {
+            "status": "skipped",
+            "reason": reason,
+            "message": message,
+            "layer": layer,
+            "sector_id": sector_id,
+        }
     result = store_fn(codes, adapter_name=adapter_name)
     result["layer"] = layer
     result["sector_id"] = sector_id
+    result["stock_codes"] = len(codes)
     return result
 
 

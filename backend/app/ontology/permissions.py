@@ -7,7 +7,8 @@ OPERATOR_ROLES: dict[str, list[str]] = {
     "analyst": ["researcher"],
     "fund_manager": ["fund_manager", "researcher"],
     "risk": ["risk", "researcher"],
-    "admin": ["researcher", "fund_manager", "risk", "knowledge_admin"],
+    "admin": ["researcher", "fund_manager", "risk", "knowledge_admin", "data_admin", "admin"],
+    "data_admin": ["data_admin", "knowledge_admin", "researcher"],
 }
 
 

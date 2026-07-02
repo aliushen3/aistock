@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { App as AntApp, Button, Card, Col, Descriptions, Row, Space, Statistic, Table, Tag, Typography } from "antd";
 import { useSector } from "../lib/sectorContext";
+import SectorConstituentConfigPanel from "../components/SectorConstituentConfigPanel";
 import {
   fetchSevenLayerData,
   getDataAdapters,
@@ -26,6 +27,7 @@ interface SyncResult {
   adapter?: string;
   count?: number;
   status?: string;
+  message?: string;
   companies_upserted?: number;
   demo_removed?: number;
   links_created?: number;
@@ -70,7 +72,7 @@ export default function DataOpsPage() {
     try {
       const r = await fn();
       if (r.status === "skipped") {
-        message.info(`${label}：未启用 ODS，已跳过（拉取 ${r.count ?? 0} 条）`);
+        message.info(r.message || `${label}：未启用 ODS，已跳过（拉取 ${r.count ?? 0} 条）`);
       } else if (r.companies_upserted != null) {
         message.success(
           `${label}完成（写入 ${r.companies_upserted} 家，移除演示 ${r.demo_removed ?? 0} 家，产品链接 ${r.links_created ?? 0} 条）`
@@ -298,6 +300,14 @@ export default function DataOpsPage() {
               <Statistic title="演示代码" value={odsStats.ontology_companies.demo_codes ?? 0} />
             </Col>
           </Row>
+        )}
+      </Card>
+
+      <Card size="small" title="赛道成分股配置" style={{ marginBottom: 16 }}>
+        {sectorId ? (
+          <SectorConstituentConfigPanel sectorId={sectorId} />
+        ) : (
+          <Typography.Text type="secondary">请先在右上角选择赛道</Typography.Text>
         )}
       </Card>
 

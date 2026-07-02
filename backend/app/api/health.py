@@ -37,6 +37,7 @@ def health_check():
             "embedding": get_vector_backend_info(),
             "minio": is_minio_available(),
             "llm": is_llm_enabled(),
+            "redis": __import__("app.services.redis_client", fromlist=["is_redis_available"]).is_redis_available(),
             "ods": ods_stats(),
             "ontology_companies": ontology_company_stats(),
             "data_adapter": __import__("app.config", fromlist=["DATA_ADAPTER"]).DATA_ADAPTER,

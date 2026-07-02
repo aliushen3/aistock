@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.celery_app import celery_app
-from app.services.graph_store import get_store
+from app.services.graph_store import invalidate_store_cache, sector_company_codes
 from app.services.graph_ingest import sync_constituents
 from app.services.ods_service import (
     sync_all_ods_layers,
@@ -35,33 +35,37 @@ def sync_watchlist_metrics_task(self, adapter: str | None = None):
 
 @celery_app.task(bind=True, name="data.sync_market_daily")
 def sync_market_daily_task(self, sector_id: str = "sector_ai_compute", adapter: str | None = None):
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = sector_company_codes(sector_id)
     self.update_state(state="PROGRESS", meta={"step": "fetching_market", "count": len(codes)})
+    if not codes:
+        return {"status": "skipped", "reason": "no_constituents", "sector_id": sector_id}
     return sync_market_daily(codes, adapter_name=adapter)
 
 
 @celery_app.task(bind=True, name="data.sync_announcements")
 def sync_announcements_task(self, sector_id: str = "sector_ai_compute", adapter: str | None = None):
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = sector_company_codes(sector_id)
     self.update_state(state="PROGRESS", meta={"step": "fetching_announcements", "count": len(codes)})
+    if not codes:
+        return {"status": "skipped", "reason": "no_constituents", "sector_id": sector_id}
     return sync_announcements(codes, adapter_name=adapter)
 
 
 @celery_app.task(bind=True, name="data.sync_financials")
 def sync_financials_task(self, sector_id: str = "sector_ai_compute", adapter: str | None = None):
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = sector_company_codes(sector_id)
     self.update_state(state="PROGRESS", meta={"step": "fetching_financials", "count": len(codes)})
+    if not codes:
+        return {"status": "skipped", "reason": "no_constituents", "sector_id": sector_id}
     return sync_financials(codes, adapter_name=adapter)
 
 
 @celery_app.task(bind=True, name="data.sync_external_reports")
 def sync_external_reports_task(self, sector_id: str = "sector_ai_compute", adapter: str | None = None):
-    store = get_store()
-    codes = list(store.companies.keys())
+    codes = sector_company_codes(sector_id)
     self.update_state(state="PROGRESS", meta={"step": "fetching_reports", "count": len(codes)})
+    if not codes:
+        return {"status": "skipped", "reason": "no_constituents", "sector_id": sector_id}
     return sync_external_reports(codes, adapter_name=adapter)
 
 
@@ -83,12 +87,17 @@ def sync_constituents_task(self, sector_id: str = "sector_ai_compute", adapter: 
 @celery_app.task(name="data.sync_sector_bundle")
 def sync_sector_bundle_task(sector_id: str = "sector_ai_compute"):
     """成分股 + 指标 + 行情 + 公告 + 财报 + 研报一次性同步。"""
-    store = get_store()
-    codes = list(store.companies.keys())
     con = sync_constituents(sector_id)
-    store = get_store()
-    codes = list(store.companies.keys())
+    invalidate_store_cache()
+    codes = sector_company_codes(sector_id)
     m = sync_industry_metrics(sector_id)
+    if not codes:
+        return {
+            "constituents": con,
+            "metrics": m,
+            "status": "partial",
+            "message": "成分股同步后仍无可用股票代码，请确认产业拓扑与 Sector 成分股配置",
+        }
     mk = sync_market_daily(codes)
     ann = sync_announcements(codes)
     fin = sync_financials(codes)

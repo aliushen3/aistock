@@ -12,6 +12,10 @@ thresholds:
   hint_high: 70
   hint_medium: 50
   hint_low: 30
+# 知识保鲜降权（主线二，DESIGN §5.7）：stale 显著降权，aging 轻度降权
+freshness_penalty:
+  stale: 0.6
+  aging: 0.9
 rules:
   expansion_cycle_months:
     tiers: [[24, 100], [18, 80], [12, 50], [0, 20]]

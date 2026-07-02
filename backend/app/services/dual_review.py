@@ -88,6 +88,49 @@ def find_pending(action_type: str, target_type: str, target_id: str) -> dict | N
     return None
 
 
+def get_pending(pending_id: str) -> dict | None:
+    if pg_store.is_db_enabled():
+        db = SessionLocal()
+        try:
+            row = db.get(OntPendingReview, pending_id)
+            if row:
+                return {
+                    "pending_id": row.pending_id,
+                    "action_type": row.action_type,
+                    "target_type": row.target_type,
+                    "target_id": row.target_id,
+                    "params": row.params,
+                    "first_operator": row.first_operator,
+                    "status": row.status,
+                }
+        finally:
+            db.close()
+    return _memory_pending.get(pending_id)
+
+
+def reject_pending(pending_id: str, second_operator: str, reason: str = "") -> dict | None:
+    """第二人驳回待复核操作 — 原 Action 不生效。"""
+    pending = get_pending(pending_id)
+    if pending is None or pending["status"] != "pending":
+        return None
+    if pending["first_operator"] == second_operator:
+        raise ValueError("双人复核须由不同操作者执行")
+    pending["status"] = "rejected"
+    pending["second_operator"] = second_operator
+    pending["reject_reason"] = reason
+    _memory_pending[pending_id] = pending
+    if pg_store.is_db_enabled():
+        db = SessionLocal()
+        try:
+            row = db.get(OntPendingReview, pending_id)
+            if row:
+                row.status = "rejected"
+                db.commit()
+        finally:
+            db.close()
+    return pending
+
+
 def approve_pending(pending_id: str, second_operator: str) -> dict | None:
     pending = _memory_pending.get(pending_id)
     if pg_store.is_db_enabled():

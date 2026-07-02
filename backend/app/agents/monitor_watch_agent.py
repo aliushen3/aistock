@@ -120,6 +120,62 @@ def _scan_freshness_lifecycle(sector_id: str) -> list[dict]:
     return alerts
 
 
+def _scan_bear_falsifiers(sector_id: str, mode: str = "fusion") -> list[dict]:
+    """证伪条件跟踪（主线一延伸）：已入池标的的空头论点 what_would_confirm 持续盯防。
+
+    空头论点被 rebut 不代表风险消失——其证伪条件（what_would_confirm）注册为监控项，
+    研究员在组合跟踪页可对照最新公告/指标判断是否应验；应验则触发候选复核。
+    """
+    from app.services.bearcase_store import list_bear_cases
+    from app.services.candidate_pool import build_pool
+
+    store = get_store()
+    try:
+        confirmed_codes = {
+            it["stock_code"]
+            for it in build_pool(store, sector_id, mode)
+            if it.get("status") == "confirmed"
+        }
+    except Exception:
+        return []
+    if not confirmed_codes:
+        return []
+
+    watch_items = []
+    for bear in list_bear_cases(sector_id=sector_id, limit=200):
+        if bear["stock_code"] not in confirmed_codes:
+            continue
+        if bear.get("severity") not in ("high", "medium"):
+            continue
+        condition = (bear.get("what_would_confirm") or "").strip()
+        if not condition:
+            continue
+        watch_items.append(
+            {
+                "stock_code": bear["stock_code"],
+                "risk": bear.get("risk"),
+                "severity": bear.get("severity"),
+                "rebuttal_status": bear.get("rebuttal_status"),
+                "what_would_confirm": condition,
+            }
+        )
+    if not watch_items:
+        return []
+    return [
+        {
+            "type": "bear_falsifier_watch",
+            "level": "medium",
+            "count": len(watch_items),
+            "message": (
+                f"{len(watch_items)} 条已入池标的的空头证伪条件在盯防中，"
+                f"如出现对应事件（如 {watch_items[0]['what_would_confirm'][:30]}…）请复核持仓逻辑"
+            ),
+            "action": "ReviewPoolEntry",
+            "items": watch_items[:10],
+        }
+    ]
+
+
 def run_monitor_watch_agent(
     sector_id: str | None = None,
     mode: str = "fusion",
@@ -144,6 +200,7 @@ def run_monitor_watch_agent(
         sector_alerts.extend(_scan_proposal_backlog(sid))
         sector_alerts.extend(_scan_metric_anomalies(sid))
         sector_alerts.extend(_scan_freshness_lifecycle(sid))
+        sector_alerts.extend(_scan_bear_falsifiers(sid, mode=mode))
         if not is_sector_confirmed(sid):
             sector_alerts.insert(
                 0,

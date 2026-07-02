@@ -857,11 +857,13 @@ def test_report_ingest_bridge(monkeypatch):
     from app.services import report_ingest_bridge
 
     def fake_reports(stock_code=None, limit=50):
-        if stock_code == "AI0002":
+        if stock_code == "300308":
             return [{"title": "光模块产能紧张涨价", "org_name": "某券商", "rating": "买入"}]
         return []
 
     monkeypatch.setattr(report_ingest_bridge, "list_ods_external_reports", fake_reports)
+    # sector_company_codes 现只返回真实 A 股代码（生产化过滤），种子里的演示代码会被滤掉
+    monkeypatch.setattr(report_ingest_bridge, "sector_company_codes", lambda sid: ["300308"])
     result = report_ingest_bridge.ingest_external_reports_to_draft("sector_ai_compute")
     assert result["status"] == "ok"
     assert result["report_lines"] >= 1

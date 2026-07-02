@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from sqlalchemy import delete, select
 
 from app.adapters.market._utils import is_real_a_share_code
@@ -12,17 +9,7 @@ from app.adapters.registry import get_constituent_adapter
 from app.db.models import OntCompany, OntLinkProduces, OntProduct
 from app.db.session import SessionLocal
 from app.ontology import pg_store
-
-SECTOR_BOARDS_PATH = Path(__file__).resolve().parents[1] / "data" / "sector_boards.json"
-
-
-def load_sector_board_config(sector_id: str) -> dict | None:
-    if not SECTOR_BOARDS_PATH.exists():
-        return None
-    with open(SECTOR_BOARDS_PATH, encoding="utf-8") as f:
-        data = json.load(f)
-    cfg = data.get(sector_id)
-    return cfg if isinstance(cfg, dict) else None
+from app.services.sector_board_config import get_sector_board_config
 
 
 def map_company_to_products(
@@ -81,9 +68,11 @@ def sync_constituents(sector_id: str, adapter_name: str | None = None) -> dict:
     if not pg_store.is_db_enabled():
         return {"status": "skipped", "sector_id": sector_id, "count": 0}
 
-    config = load_sector_board_config(sector_id)
+    config = get_sector_board_config(sector_id)
     if not config:
-        raise ValueError(f"未配置板块映射: {sector_id}，请编辑 data/sector_boards.json")
+        raise ValueError(
+            f"未配置成分股映射: {sector_id}，请在「知识抽取」或「系统与数据」页编辑 Sector 成分股配置"
+        )
 
     boards = config.get("boards") or []
     if not boards:

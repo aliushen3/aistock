@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.agents.registry import enrich_agent_response, list_agent_matrix
@@ -22,8 +23,31 @@ from app.services.serenity_adopt import confirm_recommendation as confirm_sereni
 from app.services.serenity_adopt import dismiss_recommendation as dismiss_serenity
 from app.services.serenity_recommendations import list_recommendations as list_serenity_recs
 from app.services.watchlist_service import build_dynamic_watchlist
+from app.schemas.agent_ui import (
+    AgentSessionCreate,
+    AgentSessionState,
+    AgentSessionUpdate,
+    IntentRequest,
+    IntentResponse,
+    SessionMessageRequest,
+)
+from app.services.agent_block_permissions import (
+    BLOCK_REQUIRED_ROLES,
+    block_type_visible,
+    filter_ui_blocks,
+    get_interaction_permissions,
+)
+from app.services.agent_session_store import create_session, delete_session, get_session, update_session
+from app.services.agent_stream import iter_session_message_stream, sse_encode
+from app.services.intent_router import resolve_intent
+from app.services.request_context import bind_operator_header, resolve_operator, set_current_operator
+from app.ontology.permissions import resolve_roles
 
-router = APIRouter(prefix="/agents", tags=["agents"])
+router = APIRouter(
+    prefix="/agents",
+    tags=["agents"],
+    dependencies=[Depends(bind_operator_header)],
+)
 
 
 class SectorRecommendRequest(BaseModel):
@@ -67,6 +91,7 @@ class OrchestratorRequest(BaseModel):
     data_limit: int = Field(20, ge=1, le=100)
     stock_code: str | None = None
     stop_on_error: bool = False
+    resume: bool = Field(False, description="从 workflow-status 断点续跑，自动选取剩余 Agent 步骤")
 
 
 class SerenityPathRequest(BaseModel):
@@ -127,6 +152,119 @@ class DataSourcePipelineRequest(BaseModel):
 def get_agent_matrix():
     """Agent 矩阵 A/B 分类（F6）。"""
     return {"items": list_agent_matrix(), "note": "A 类真 LLM；B 类确定性 Pipeline（LLM 仅兜底/解释）"}
+
+
+@router.post("/intent", response_model=IntentResponse)
+def resolve_agent_intent(req: IntentRequest):
+    """LUI 意图解析 — 规则 + LLM 分类。"""
+    result = resolve_intent(
+        req.message,
+        sector_id=req.sector_id,
+        focus=req.focus,
+        workflow_step=req.workflow_step,
+        recent_messages=req.recent_messages,
+        use_llm=req.use_llm,
+    )
+    return IntentResponse(**result)
+
+
+@router.get("/ui-permissions")
+def get_agent_ui_permissions(x_operator: str | None = Header(default=None, alias="X-Operator")):
+    """当前 operator 可见 Block 与可执行交互（对齐导航 roles）。"""
+    operator = resolve_operator(x_operator, None)
+    set_current_operator(operator)
+    roles = resolve_roles(operator)
+    block_visibility = {
+        btype: block_type_visible(operator, btype) for btype in BLOCK_REQUIRED_ROLES
+    }
+    return {
+        "operator": operator,
+        "roles": roles,
+        "blocks": block_visibility,
+        "interactions": get_interaction_permissions(operator),
+    }
+
+
+@router.post("/sessions", response_model=AgentSessionState)
+def create_agent_session(req: AgentSessionCreate):
+    row = create_session(
+        operator=req.operator,
+        sector_id=req.sector_id,
+        focus=req.focus,
+        workflow_step=req.workflow_step,
+    )
+    return AgentSessionState(**row)
+
+
+@router.get("/sessions/{session_id}", response_model=AgentSessionState)
+def get_agent_session(session_id: str):
+    from app.services.request_context import get_current_operator
+
+    row = get_session(session_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    op = get_current_operator()
+    row = dict(row)
+    row["ui_blocks"] = filter_ui_blocks(row.get("ui_blocks") or [], op)
+    return AgentSessionState(**row)
+
+
+@router.put("/sessions/{session_id}", response_model=AgentSessionState)
+def patch_agent_session(session_id: str, req: AgentSessionUpdate):
+    row = update_session(session_id, req.model_dump(exclude_unset=True))
+    if row is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return AgentSessionState(**row)
+
+
+@router.delete("/sessions/{session_id}")
+def remove_agent_session(session_id: str):
+    if not delete_session(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"ok": True}
+
+
+@router.post("/session/message/stream")
+def stream_session_message(req: SessionMessageRequest):
+    """LUI 消息 SSE：意图 → 流式助手回复 → Agent 步骤/Block 逐步推送。"""
+    operator = resolve_operator(None, req.operator)
+    set_current_operator(operator)
+
+    session_id = req.session_id
+    if session_id and get_session(session_id) is None:
+        session_id = None
+    if not session_id:
+        created = create_session(
+            operator=operator,
+            sector_id=req.sector_id,
+            focus=req.focus,
+            workflow_step=req.workflow_step,
+        )
+        session_id = created["session_id"]
+
+    intent = resolve_intent(
+        req.message,
+        sector_id=req.sector_id,
+        focus=req.focus,
+        workflow_step=req.workflow_step,
+        recent_messages=req.recent_messages,
+        use_llm=req.use_llm,
+    )
+
+    def event_gen():
+        yield from iter_session_message_stream(
+            message=req.message,
+            intent=intent,
+            stream_assistant=req.stream_assistant,
+            operator=operator,
+        )
+        yield sse_encode("session", {"session_id": session_id})
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/watchlist")
@@ -196,8 +334,47 @@ def dismiss_bottleneck_recommendation(rec_id: str):
     return rec
 
 
+@router.post("/bottleneck-recommendations/{rec_id}/confirm")
+def confirm_bottleneck_recommendation(rec_id: str, reason: str, operator: str = "analyst"):
+    """确认瓶颈提案 — 委托 ConfirmBottleneck Ontology Action 后标记提案已采纳。"""
+    from app.ontology.action_executor import ActionError, action_executor
+    from app.services.bottleneck_recommendations import get_recommendation
+
+    rec = get_recommendation(rec_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="提案不存在")
+    try:
+        result = action_executor.execute_with_params(
+            action_type="ConfirmBottleneck",
+            target_type="Product",
+            target_id=rec["product_id"],
+            params={"reason": reason},
+            operator=operator,
+        )
+    except ActionError as e:
+        raise HTTPException(status_code=400, detail=e.message) from e
+    # ConfirmBottleneck 需双人复核：首签仅 pending_review，复核通过（success）才标记提案已采纳
+    if result.status == "success":
+        update_bottleneck_status(rec_id, "adopted")
+    return {
+        "rec_id": rec_id,
+        "product_id": rec["product_id"],
+        "status": result.status,
+        "requires_dual_review": result.requires_dual_review,
+        "pending_id": result.pending_id,
+        "message": result.message,
+    }
+
+
 @router.post("/orchestrator/run")
 def run_orchestrator(req: OrchestratorRequest):
+    steps = req.steps
+    if req.resume and not steps:
+        from app.services.workflow_progress import get_resume_steps
+
+        steps = get_resume_steps(req.sector_id, mode=req.mode)
+        if not steps:
+            steps = ["monitor_watch"]
     try:
         return enrich_agent_response(
             "orchestrator",
@@ -208,7 +385,7 @@ def run_orchestrator(req: OrchestratorRequest):
                 content=req.content,
                 source_ref=req.source_ref,
                 mode=req.mode,
-                steps=req.steps,
+                steps=steps,
                 operator=req.operator,
                 stop_on_gate=req.stop_on_gate,
                 data_task=req.data_task,

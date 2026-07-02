@@ -1,10 +1,11 @@
 # 产业瓶颈 Alpha 智能选股系统 — 总体方案设计
 
-> **文档版本**：v3.0
+> **文档版本**：v3.1
 > **最后更新**：2026-06
 > **文档性质**：本项目**唯一总方案**，整合各分册设计内容。
 > **冲突处理**：本文档优先于其他历史材料；专题细节见 `docs/` 分册，冲突时以本文档为准。
 > **v3.0 骨架变更**：在「Ontology + 知识图谱 + 多智能体 + 人机协同」之上，新增**三条贯穿主线**——**反证优先、知识保鲜、预期差与价值捕获**，并将其从下游步骤提升为设计主干。详见 §1.4、§2.6、§5.7、§6.3、§6.4、§11.1。
+> **v3.1 交互变更**：Agent 运行采用 **LUI（意图对话）+ 动态 GUI Block（结果与确认）**，见 §8.6。
 
 ---
 
@@ -18,7 +19,6 @@
 6. [推理引擎与算法](#6-推理引擎与算法)
 7. [业务应用层](#7-业务应用层)
 8. [人机协同与投研流程](#8-人机协同与投研流程)
-9. [技术栈与工程结构](#9-技术栈与工程结构)
 10. [实施路径与实现状态](#10-实施路径与实现状态)
 11. [评估与验证](#11-评估与验证)
 12. [风险提示与合规](#12-风险提示与合规)
@@ -322,7 +322,7 @@ flowchart LR
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  前端交互层    React · G6 · 看板 · Agent 控制台 · 多空对照 · 流程指引 │
+│  前端交互层    React · G6 · 看板 · **LUI 对话 + 动态 GUI Block** · 多空对照 │
 ├──────────────────────────────────────────────────────────────────┤
 │  L6 人工决策   ConfirmSectorBeta · ApprovePoolEntry · 三道闸 · 双人复核 │
 ├──────────────────────────────────────────────────────────────────┤
@@ -1013,13 +1013,16 @@ GraphRAG 输出拓扑、瓶颈依据、Beta/Alpha 拆分、Serenity 逻辑、预
 
 ### 前端 Agent 触点
 
+> Agent 运行交互模式见 **§8.6 LUI + 动态 GUI**。
+
 | 页面 | Agent 集成 |
 |------|-----------|
-| 首页 | Agent 控制台、`WorkflowGuide` 五步指引、Object Set 告警（含保鲜/反证） |
-| 知识页 | 研报上传 → KnowledgeIngest |
-| 图谱页 | 瓶颈高亮、Serenity 溯源、保鲜着色 |
-| 候选池 | 融合排序、三道闸结果卡、入池 Action |
-| 报告页 | GraphRAG 草稿、多空对照、审核 |
+| 首页 | **Agent 会话（LUI + GUI）**、七步进度、待办、断点续跑 |
+| 知识页 | KnowledgeIngest → `knowledge_draft_preview` Block |
+| 图谱页 | 瓶颈/Serenity Agent → `bottleneck_rec_list` / 溯源 Block |
+| 候选池 | 融合 → `candidate_fusion_table` + 三道闸确认 Block |
+| 报告页 | GraphRAG + BearCase → `report_draft_summary` / `bear_case_list` |
+| 看板 | Monitor → `alert_feed` / `metric_cards` |
 
 ---
 
@@ -1111,6 +1114,185 @@ stateDiagram-v2
     Agent动态监控 --> 研究员确认瓶颈: 瓶颈缓解(easing)
 ```
 
+### 8.6 Agent 运行交互：LUI + 动态 GUI
+
+> **v3.1 新增。** 运行 Agent 时，前端采用 **LUI（Language UI）+ GUI（Graphical UI）** 双轨交互：LUI 负责意图理解与对话驱动，GUI 负责结构化结果展示与人工确认。二者在同一「Agent 会话」中协同，替代当前以 Tab + 按钮为主的 `AgentConsole` 形态。
+
+#### 8.6.1 设计目标
+
+| 目标 | 说明 |
+|------|------|
+| **自然意图入口** | 研究员用自然语言描述投研意图（「扫描氟化工瓶颈」「从断点继续 Step3」），系统解析为 Agent / 参数 / 工作流步骤 |
+| **可审计、可确认** | Agent 产出仍为 **提案（proposed/draft）**；GUI 必须渲染确认控件，最终写入 Ontology Action，Agent 不得越权 |
+| **动态 GUI** | 不同 Agent 返回不同 UI 块（推荐列表、草案预览、三道闸卡、告警流），由 **UI Block 协议** 驱动渲染，而非写死页面 |
+| **与七步工作流对齐** | LUI 可引用 `workflow-status` 当前 Step；GUI 根据 Step 门控展示「可执行 / 需先确认」状态 |
+
+#### 8.6.2 概念分工
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Agent 会话面板（单页 / 抽屉 / 分栏）        │
+├──────────────────────────┬──────────────────────────────────┤
+│  LUI 区（左侧或底部）      │  GUI 区（右侧或主区域）            │
+│  · 多轮对话历史            │  · 动态 UI Block 栈               │
+│  · **输入框（核心）**      │  · 结果表格 / 卡片 / 图谱缩略      │
+│  · 意图解析反馈            │  · 确认 / 驳回 / 填写理由         │
+│  · 快捷指令 Chip           │  · 跳转深链（图谱节点、报告段）    │
+│  · 运行状态 / Token 摘要   │  · 审计留痕提示                   │
+└──────────────────────────┴──────────────────────────────────┘
+```
+
+| 维度 | LUI | GUI |
+|------|-----|-----|
+| **职责** | 意图理解、参数补全、步骤建议、运行触发 | 结构化展示 Agent 输出、人工确认、批量操作 |
+| **核心控件** | **对话框输入框**（支持 Enter 发送、Shift+Enter 换行） | `UIBlockRenderer` 按 `type` 动态挂载组件 |
+| **输入** | 自然语言 + 当前赛道上下文 + workflow Step | 表单、Checkbox、理由 TextArea、Action 按钮 |
+| **输出** | 助手消息（解析结果、下一步建议、disclaimer） | 提案列表、指标卡、Graph 快照、确认 Modal |
+| **状态** | `messages[]`、`pendingIntent`、`isRunning` | `uiBlocks[]`、`pendingActions[]` |
+
+**原则**：LUI 说「做什么、为什么」；GUI 展示「是什么、请确认什么」。禁止仅用对话文本替代高风险闸（入池、发报告）——对应 Action 必须在 GUI 显式控件完成。
+
+#### 8.6.3 交互流程
+
+```mermaid
+sequenceDiagram
+    participant User as 研究员
+    participant LUI as LUI输入框
+    participant Router as IntentRouter
+    participant Runtime as AgentRuntime
+    participant GUI as GUIBlockRenderer
+    participant Ont as OntologyAction
+
+    User->>LUI: 自然语言意图
+    LUI->>Router: 解析 intent + slots
+    Router-->>LUI: 澄清问题或确认计划
+    LUI->>Runtime: 调用 Agent/Orchestrator
+    Runtime-->>GUI: AgentResponse + ui_blocks
+    GUI->>User: 渲染列表/卡片/表单
+    User->>GUI: 确认/驳回 + 理由
+    GUI->>Ont: 执行 Action（非 Agent 直写）
+    Ont-->>GUI: 审计结果
+    GUI-->>LUI: 同步助手摘要消息
+```
+
+1. **意图阶段（LUI）**：输入 → `IntentRouter`（规则 + 可选 LLM）→ 输出 `{ agent_key, params, workflow_step?, clarify? }`。
+2. **运行阶段**：调用现有 `/api/v1/agents/*/run` 或 `orchestrator/run`（`resume` / `stop_on_gate`）。
+3. **展示阶段（GUI）**：响应携带 `ui_blocks`，前端 `UIBlockRenderer` 动态挂载。
+4. **确认阶段（GUI）**：用户通过 Block 内 Action 触发既有 API（`confirmSector`、`confirmKnowledgeDraft`、提案 adopt/dismiss 等）。
+5. **回写 LUI**：助手消息追加 `agent_summary` 与待办计数，并刷新 `workflow-status`。
+
+#### 8.6.4 UI Block 协议（Agent → 前端）
+
+Agent 响应在现有 `enrich_agent_response` 字段之外，增加 **`ui_blocks: UIBlock[]`**（Orchestrator 可为每步追加 Block 或汇总为 `pipeline_blocks`）。
+
+**UIBlock 通用字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `block_id` | string | 块唯一 ID |
+| `type` | enum | 渲染器类型（见下表） |
+| `title` | string | 块标题 |
+| `agent_key` | string | 来源 Agent |
+| `risk_level` | `low \| medium \| high` | 确认摩擦等级，对齐 §8.4 |
+| `data` | object | 类型相关载荷 |
+| `actions` | `UIAction[]` | 可执行操作（映射 Ontology Action / REST） |
+
+**UIAction 字段**：
+
+| 字段 | 说明 |
+|------|------|
+| `action_id` | 前端唯一标识 |
+| `label` | 按钮文案 |
+| `kind` | `primary \| default \| danger` |
+| `api` | `{ method, path, body_template }` 或 `ontology_action` |
+| `requires_reason` | 是否必填理由（≥5/≥20 字由 `risk_level` 决定） |
+| `confirm_text` | 二次确认文案 |
+
+**首批 Block 类型与现有页面对应**：
+
+| `type` | 用途 | 数据来源（当前代码） | GUI 组件 |
+|--------|------|----------------------|----------|
+| `sector_recommendation_list` | 赛道推荐待采纳 | `SectorRecommendation[]` | 列表 + 采纳/驳回 |
+| `knowledge_draft_preview` | 知识草案 | `KnowledgeDraft` + validate | 关系树 + 校准入库 |
+| `bottleneck_rec_list` | 瓶颈提案 | `BottleneckRecommendation[]` | 列表 + 跳转图谱 |
+| `serenity_rec_list` | Serenity 路径提案 | `SerenityRecommendation[]` | 路径高亮 + 确认 |
+| `candidate_fusion_table` | 融合候选 | `Candidate[]` | 表格 + 三道闸 Tag |
+| `report_draft_summary` | 报告草稿 | `Report` logic_chain | 折叠 + 审核 |
+| `bear_case_list` | 空头论点 | `BearCase[]` | 列表 + 回应入口 |
+| `alert_feed` | 告警/待办 | `evaluate_alerts` / `workflow-status` | Timeline |
+| `workflow_progress` | 七步进度 | `get_sector_workflow_status` | Steps + 断点续跑 |
+| `metric_cards` | 运行摘要 | `agent_summary`, counts | Statistic 行 |
+| `empty_guide` | 空状态引导 | `graph_stats` | CTA 按钮 |
+
+新增 Block 类型时：**后端注册 `type` + 前端注册 Renderer**，无需改 LUI 输入框逻辑。
+
+#### 8.6.5 LUI 意图路由（IntentRouter）
+
+**输入上下文**（每次发送附带）：
+
+```json
+{
+  "sector_id": "sector_bc1ab66f",
+  "workflow_step": 2,
+  "focus": "氟化工",
+  "recent_messages": ["..."]
+}
+```
+
+**输出意图**（示例）：
+
+```json
+{
+  "intent": "run_agent",
+  "agent_key": "bottleneck_scout",
+  "params": { "sector_id": "...", "min_hint_level": "hint_medium" },
+  "assistant_message": "将扫描当前赛道瓶颈环节，结果需在 GUI 确认后生效。",
+  "suggested_chips": ["从断点继续", "同步成分股", "查看待办"]
+}
+```
+
+**路由策略（分阶段）**：
+
+| 阶段 | 实现 | 说明 |
+|------|------|------|
+| P0 | 规则 + 关键词 + workflow Step 映射 | 覆盖 80% 高频指令，零额外 LLM 成本 |
+| P1 | LLM 意图分类（function calling） | 复杂表述、多 Agent 编排 |
+| P2 | 多轮澄清（缺 sector / 缺理由时追问） | 与 GUI 表单联动 |
+
+**快捷 Chip**（输入框上方）：根据 `workflow-status.pending_todos` 与当前 Step 动态生成，点击等价于预填 LUI 指令。
+
+#### 8.6.6 布局与挂载点
+
+| 挂载点 | 布局 | 说明 |
+|--------|------|------|
+| **首页（主会话）** | 左 LUI 对话 + 右 GUI Block 栈 | 默认 Agent 入口；整合现有 `AgentConsole`、`PendingTodosPanel` |
+| **各 Step 页面** | 底部 LUI 条 + 页内 GUI 区 | 知识/图谱/候选等页嵌入「本页 Agent」上下文 |
+| **全局** | 可选右侧 Drawer | 运行长任务时不离开当前页 |
+
+当前实现对照：
+
+| 已有组件 | 迁移方向 |
+|----------|----------|
+| `AgentConsole.tsx` | 拆为 LUI（输入+对话）+ GUI（Tab 内列表 → Block） |
+| `PendingTodosPanel` | 合并为 `alert_feed` / `workflow_progress` Block |
+| `AgentWorkflowProgress` | 可嵌入 GUI 或 LUI 上方摘要条 |
+| 各页「运行 Agent」按钮 | 改为向 LUI 发送结构化 intent，GUI 展示结果 |
+
+#### 8.6.7 与门控、审计的一致性
+
+- GUI 中 `risk_level: high` 的 Action（入池、发报告、确认瓶颈）必须：`requires_reason: true`、三道闸 Checkbox（候选池已有雏形）、审计 API 回写。
+- LUI **不得**直接调用 `ApprovePoolEntry` 等 Action；仅 GUI Block 的 Action 按钮可触发。
+- Agent 运行响应必须带 `disclaimer`；LUI 助手消息与 GUI 页脚同时展示。
+
+#### 8.6.8 非功能需求
+
+| 项 | 要求 |
+|----|------|
+| 流式 | P1 支持 `agent_summary` / 步骤进度 SSE，LUI 逐字、GUI 逐步 append Block |
+| 可访问性 | GUI Block 支持键盘导航；确认框 focus trap |
+| 会话持久 | `session_id` 存 Redis/DB，刷新可恢复 Block 栈（P2） |
+| 权限 | 与导航 `roles` 一致，Block 内 Action 按角色过滤（P2） |
+
 ---
 
 ## 9. 技术栈与工程结构
@@ -1157,6 +1339,8 @@ aistock/
 │   │   └── object_set_alerts.py
 │   └── tasks/                  # Celery 任务
 ├── frontend/src/components/
+│   ├── AgentConsole.tsx          # 待演进为 AgentSession（LUI+GUI）
+│   ├── AgentWorkflowProgress.tsx
 │   └── WorkflowGuide.tsx
 └── docker-compose.yml
 ```

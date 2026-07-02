@@ -504,3 +504,41 @@ def test_sync_all_ods_layers(monkeypatch):
     out = ods_service.sync_all_ods_layers("sector_ai_compute")
     assert out["sector_id"] == "sector_ai_compute"
     assert set(out["results"].keys()) == {"market", "research", "fundamental", "announcement"}
+
+
+def test_sector_company_codes_empty():
+    from app.services.graph_store import sector_company_codes
+
+    assert sector_company_codes("sector_does_not_exist") == []
+
+
+def test_sync_reports_no_constituents_returns_400(monkeypatch):
+    class FakeStore:
+        def get_sector(self, sid):
+            return {"id": sid, "name": "氟化工"}
+
+        def list_products(self, sid):
+            return [{"id": "prod_hf", "name": "氢氟酸"}]
+
+    monkeypatch.setattr("app.api.data.get_store", lambda: FakeStore())
+    monkeypatch.setattr("app.api.data.sector_company_codes", lambda sid: [])
+
+    r = client.post("/api/v1/data/sync/reports/sector_bc1ab66f")
+    assert r.status_code == 400
+    assert "0 只成分股" in r.json()["detail"]
+
+
+def test_sync_reports_no_products_returns_400(monkeypatch):
+    class FakeStore:
+        def get_sector(self, sid):
+            return {"id": sid, "name": "氟化工"}
+
+        def list_products(self, sid):
+            return []
+
+    monkeypatch.setattr("app.api.data.get_store", lambda: FakeStore())
+    monkeypatch.setattr("app.api.data.sector_company_codes", lambda sid: [])
+
+    r = client.post("/api/v1/data/sync/reports/sector_bc1ab66f")
+    assert r.status_code == 400
+    assert "知识抽取" in r.json()["detail"]

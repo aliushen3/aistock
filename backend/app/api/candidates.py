@@ -31,6 +31,8 @@ class ConfirmPoolRequest(BaseModel):
     action: PoolEntryStatus
     reason: str = Field(..., min_length=5)
     operator: str = "analyst"
+    # 三道闸复核确认：预期透支/价值不可捕获时必须显式确认（后端硬校验，见 action_executor）
+    gate_ack: bool = False
 
 
 @router.get("")
@@ -58,6 +60,56 @@ def list_candidates(sector_id: str, mode: PoolMode = PoolMode.FUSION):
     }
 
 
+@router.get("/dossier")
+def candidate_dossier(sector_id: str, stock_code: str, mode: PoolMode = PoolMode.FUSION):
+    """标的论证档案 — 单标的多空对照 + 三道闸依据（供论证工作台）。"""
+    store = get_store()
+    if store.get_sector(sector_id) is None:
+        raise HTTPException(status_code=404, detail=f"赛道不存在: {sector_id}")
+
+    items = build_pool(store, sector_id, mode.value)
+    candidate = next((i for i in items if i["stock_code"] == stock_code), None)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail=f"候选标的不存在: {stock_code}")
+
+    from app.services.bearcase_store import list_bear_cases
+    from app.services.diagnosis import diagnose_company
+    from app.services.report import latest_sector_report
+
+    bears = list_bear_cases(sector_id=sector_id, stock_code=stock_code)
+
+    diagnosis = None
+    try:
+        diagnosis = diagnose_company(store, sector_id, stock_code)
+    except Exception:
+        diagnosis = None
+
+    bull = None
+    report = latest_sector_report(sector_id)
+    if report:
+        thesis = next(
+            (c for c in report.get("candidates", []) if c.get("stock_code") == stock_code),
+            None,
+        )
+        bull = {
+            "report_id": report.get("report_id"),
+            "report_status": report.get("status"),
+            "thesis_summary": (thesis or {}).get("thesis_summary"),
+            "logic_chain": report.get("logic_chain", []),
+            "citations": report.get("citations", []),
+        }
+
+    return {
+        "sector_id": sector_id,
+        "mode": mode,
+        "candidate": candidate,
+        "bull": bull,
+        "bear_cases": bears,
+        "diagnosis": diagnosis,
+        "note": "多空并排等强展示；高severity空头未回应将阻断入池（闸三）",
+    }
+
+
 @router.post("/confirm")
 def confirm_candidates(req: ConfirmPoolRequest):
     """研究员/基金经理确认入池或否决 — 委托 Ontology Action 执行。"""
@@ -79,7 +131,7 @@ def confirm_candidates(req: ConfirmPoolRequest):
                 action_type=action_type,
                 target_type="CandidatePoolEntry",
                 target_id=entry_id,
-                params={"reason": req.reason},
+                params={"reason": req.reason, "gate_ack": req.gate_ack},
                 operator=req.operator,
             )
             results.append({"stock_code": code, "audit_id": r.audit_id})

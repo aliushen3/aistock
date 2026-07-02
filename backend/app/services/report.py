@@ -206,6 +206,36 @@ def get_report(report_id: str) -> dict | None:
     return _report_store.get(report_id)
 
 
+def latest_sector_report(sector_id: str) -> dict | None:
+    """赛道最新报告（草稿或已发布）— 供标的论证工作台的看多侧展示。"""
+    from app.ontology import pg_store
+
+    candidates = [r for r in _report_store.values() if r.get("sector_id") == sector_id]
+    if pg_store.is_db_enabled():
+        from sqlalchemy import select
+
+        from app.db.models import OntResearchReport
+        from app.db.session import SessionLocal
+
+        db = SessionLocal()
+        try:
+            row = db.scalars(
+                select(OntResearchReport)
+                .where(OntResearchReport.sector_id == sector_id)
+                .order_by(OntResearchReport.created_at.desc())
+                .limit(1)
+            ).first()
+            if row is not None:
+                full = pg_store.get_report(row.report_id)
+                if full:
+                    return full
+        finally:
+            db.close()
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: r.get("generated_at", ""))
+
+
 def review_report(report_id: str, action: str, comments: str, operator: str = "analyst") -> dict | None:
     report = get_report(report_id)
     if report is None:

@@ -10,19 +10,10 @@ from __future__ import annotations
 import logging
 
 from app.services.extraction import extract_from_text, ingest_document
-from app.services.graph_store import get_store
+from app.services.graph_store import get_store, sector_company_codes
 from app.services.ods_service import list_ods_external_reports
 
 logger = logging.getLogger(__name__)
-
-
-def _sector_company_codes(sector_id: str) -> list[str]:
-    store = get_store()
-    seen: dict[str, None] = {}
-    for product in store.list_products(sector_id):
-        for company in store.companies_producing(product["id"]):
-            seen.setdefault(company["code"], None)
-    return list(seen.keys())
 
 
 def _build_report_lines(codes: list[str], per_code_limit: int) -> list[str]:
@@ -51,13 +42,30 @@ def ingest_external_reports_to_draft(
     if store.get_sector(sector_id) is None:
         raise ValueError(f"赛道不存在: {sector_id}")
 
-    codes = _sector_company_codes(sector_id)
+    codes = sector_company_codes(sector_id)
+    if not codes:
+        store = get_store()
+        if not store.list_products(sector_id):
+            return {
+                "status": "empty",
+                "sector_id": sector_id,
+                "reason": "no_products",
+                "message": "赛道尚无产业链环节，请先在「知识抽取」确认拓扑",
+            }
+        return {
+            "status": "empty",
+            "sector_id": sector_id,
+            "reason": "no_constituents",
+            "message": "当前赛道 0 只成分股，请先在「系统与数据」同步成分股",
+        }
     lines = _build_report_lines(codes, per_code_limit)
     text = "\n".join(lines)
     if len(text.strip()) < 20:
         return {
             "status": "empty",
             "sector_id": sector_id,
+            "reason": "no_report_titles",
+            "message": "已查询成分股但未拉取到研报标题，请先点「同步研报元数据」",
             "company_count": len(codes),
             "report_lines": len(lines),
         }

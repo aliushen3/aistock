@@ -1,5 +1,5 @@
 {
-  "_comment": "sector_id -> 东财板块/概念 + 公司名关键词粗映射到 OntProduct。新赛道按需扩展 boards 与 product_keywords。",
+  "_comment": "只读内置种子；运行时优先读 OntSector.attrs.constituent_config，请在前端编辑配置",
   "sector_ai_compute": {
     "boards": [
       {"type": "concept", "name": "CPO概念"},
@@ -12,6 +12,19 @@
       "prod_hsb_pcb": ["PCB", "沪电", "深南", "胜宏"],
       "prod_cowos": ["封装", "长电", "通富", "华天"],
       "prod_ai_server": ["服务器", "工业富联", "浪潮", "中科曙光"]
+    }
+  },
+  "sector_bc1ab66f": {
+    "boards": [
+      {"type": "concept", "name": "氟化工概念"},
+      {"type": "industry", "name": "化学原料"}
+    ],
+    "default_product_id": "prod_fluoropolymer",
+    "product_keywords": {
+      "prod_fluoropolymer": ["氟化工", "PVDF", "PTFE", "巨化", "东岳", "三美", "永和"],
+      "prod_refrigerant": ["制冷剂", "R32", "R134a", "霍尼韦尔", "巨化股份"],
+      "prod_fluorine_gas": ["电子特气", "六氟化硫", "中船特气", "华特气体"],
+      "prod_li_salt": ["六氟磷酸锂", "电解液", "天赐", "多氟多", "天际"]
     }
   }
 }

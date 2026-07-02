@@ -490,6 +490,29 @@ def confirm_draft(draft_id: str, operator: str = "analyst", force: bool = False)
                 db.commit()
         finally:
             db.close()
+    bootstrap_result = None
+    from app.services.graph_store import get_store, invalidate_store_cache, sector_company_codes
+
+    invalidate_store_cache()
+    sid = draft["sector_id"]
+    store = get_store()
+    stats_after = {
+        "products": len(store.list_products(sid)),
+        "companies": len(sector_company_codes(sid)),
+    }
+    if stats_after["products"] == 0 or stats_after["companies"] == 0:
+        from app.services.sector_bootstrap import bootstrap_sector
+
+        bootstrap_result = bootstrap_sector(
+            sid, sync_constituents=True, ingest_reports=False
+        )
+        invalidate_store_cache()
+        store = get_store()
+        stats_after = {
+            "products": len(store.list_products(sid)),
+            "companies": len(sector_company_codes(sid)),
+        }
+
     return {
         "draft_id": draft_id,
         "status": "confirmed",
@@ -498,4 +521,6 @@ def confirm_draft(draft_id: str, operator: str = "analyst", force: bool = False)
         "applied_bottleneck_hints": applied_hints,
         "skipped_relations": skipped,
         "validation": validation,
+        "bootstrap": bootstrap_result,
+        "graph_stats_after": stats_after,
     }

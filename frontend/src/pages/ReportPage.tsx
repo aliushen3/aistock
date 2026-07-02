@@ -11,6 +11,7 @@ import {
   type Report,
 } from "../lib/api";
 import { useSector } from "../lib/sectorContext";
+import AgentPageStrip from "../components/agent-session/AgentPageStrip";
 
 const sev = (s: string) => (s === "高" || s === "high" ? "red" : s === "中" || s === "medium" ? "orange" : "green");
 const confColor = (c: string) => (c === "high" ? "green" : c === "medium" ? "orange" : "default");
@@ -96,7 +97,7 @@ export default function ReportPage() {
 
   return (
     <Card
-      title="AI 投研逻辑报告（GraphRAG 草稿，须人工审核发布）"
+      title="研究报告（阶段④ 论证产出物 — GraphRAG 草稿，须人工审核发布）"
       extra={
         <Button type="primary" loading={loading} onClick={gen}>
           生成报告草稿
@@ -237,6 +238,14 @@ export default function ReportPage() {
           </Space>
         </Space>
       )}
+      <div style={{ marginTop: 16 }}>
+        <AgentPageStrip
+          sectorId={sectorId}
+          focus="report"
+          workflowStep={5}
+          pageHint="本页 Agent：生成报告草稿、运行反证 Agent、审核发布"
+        />
+      </div>
     </Card>
   );
 }

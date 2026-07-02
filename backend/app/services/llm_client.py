@@ -40,6 +40,50 @@ def chat_completion(system: str, user: str, temperature: float = 0.3) -> str | N
         return None
 
 
+def chat_with_tools(
+    system: str,
+    user: str,
+    tools: list[dict],
+    temperature: float = 0.2,
+) -> dict | str | None:
+    """OpenAI 兼容 function calling，返回 tool arguments dict。"""
+    if not is_llm_enabled():
+        return None
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+        resp = client.chat.completions.create(
+            model=LLM_MODEL,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": tools[0]["function"]["name"]}},
+        )
+        msg = resp.choices[0].message
+        if msg.tool_calls:
+            args = msg.tool_calls[0].function.arguments
+            parsed = parse_json_response(args)
+            return parsed if parsed else args
+        if msg.content:
+            return parse_json_response(msg.content) or msg.content
+        return None
+    except Exception as e:
+        logger.warning("LLM tools 调用失败: %s", e)
+        return None
+
+
+def iterate_text_chunks(text: str, chunk_size: int = 4):
+    """将文本切分为 SSE 流式片段。"""
+    if not text:
+        return
+    for i in range(0, len(text), chunk_size):
+        yield text[i : i + chunk_size]
+
+
 def parse_json_response(text: str) -> dict | None:
     try:
         return json.loads(text)

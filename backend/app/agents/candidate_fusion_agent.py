@@ -50,6 +50,7 @@ def run_candidate_fusion_agent(
             f"（买方池 {len(buy_side)} + Serenity 池 {len(serenity)}）"
         ),
         "candidate_count": len(pool),
+        "pool": pool,
         "p0_count": len(p0),
         "top_candidates": rationales,
         "disclaimer": "排序说明仅供参考，入池须 ApprovePoolEntry 人工确认",

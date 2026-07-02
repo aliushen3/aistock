@@ -206,6 +206,20 @@ class HybridGraphStore(InMemoryGraphStore):
         return "neo4j" if is_neo4j_available() else "memory"
 
 
+def sector_company_codes(sector_id: str) -> list[str]:
+    """赛道下经 Product→Company 关联的真实 A 股代码（去重、排序）。"""
+    from app.adapters.market._utils import is_real_a_share_code, normalize_display_code
+
+    store = get_store()
+    seen: dict[str, None] = {}
+    for product in store.list_products(sector_id):
+        for company in store.companies_producing(product["id"]):
+            code = normalize_display_code(company["code"])
+            if is_real_a_share_code(code):
+                seen.setdefault(code, None)
+    return sorted(seen.keys())
+
+
 _use_db_seed = False
 
 

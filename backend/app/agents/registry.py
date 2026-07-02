@@ -139,7 +139,15 @@ def list_agent_matrix() -> list[dict]:
     return items
 
 
-def enrich_agent_response(agent_key: str, payload: dict, llm_assisted: bool | None = None) -> dict:
+def enrich_agent_response(
+    agent_key: str,
+    payload: dict,
+    llm_assisted: bool | None = None,
+    operator: str | None = None,
+) -> dict:
+    from app.services.request_context import get_current_operator
+
+    op = operator or get_current_operator()
     spec = AGENT_MATRIX.get(agent_key, {})
     assisted = (
         llm_assisted
@@ -152,4 +160,6 @@ def enrich_agent_response(agent_key: str, payload: dict, llm_assisted: bool | No
     enriched["runtime"] = spec.get("runtime", "pipeline")
     enriched["llm_assisted"] = assisted
     enriched["display_name"] = spec.get("display_name", agent_key)
-    return enriched
+    from app.services.agent_ui_blocks import attach_ui_blocks
+
+    return attach_ui_blocks(agent_key, enriched, operator=op)
